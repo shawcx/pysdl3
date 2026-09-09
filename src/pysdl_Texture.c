@@ -14,12 +14,8 @@ static PyObject * PySDL_Texture_SetAlphaMod  (PySDL_Texture*, PyObject*);
 static PyObject * PySDL_Texture_GetAlphaMod  (PySDL_Texture*, PyObject*);
 static PyObject * PySDL_Texture_SetBlendMode (PySDL_Texture*, PyObject*);
 static PyObject * PySDL_Texture_GetBlendMode (PySDL_Texture*, PyObject*);
-#if SDL_VERSION_ATLEAST(2,0,12)
 static PyObject * PySDL_Texture_SetScaleMode (PySDL_Texture*, PyObject*);
 static PyObject * PySDL_Texture_GetScaleMode (PySDL_Texture*, PyObject*);
-#endif
-static PyObject * PySDL_Texture_GL_Bind      (PySDL_Texture*, PyObject*);
-static PyObject * PySDL_Texture_GL_Unbind    (PySDL_Texture*, PyObject*);
 
 static PyMethodDef PySDL_Texture_methods[] = {
     { "Query",        (PyCFunction)PySDL_Texture_Query,        METH_NOARGS  },
@@ -33,12 +29,8 @@ static PyMethodDef PySDL_Texture_methods[] = {
     { "GetAlphaMod",  (PyCFunction)PySDL_Texture_GetAlphaMod,  METH_NOARGS  },
     { "SetBlendMode", (PyCFunction)PySDL_Texture_SetBlendMode, METH_O       },
     { "GetBlendMode", (PyCFunction)PySDL_Texture_GetBlendMode, METH_NOARGS  },
-#if SDL_VERSION_ATLEAST(2,0,12)
     { "SetScaleMode", (PyCFunction)PySDL_Texture_SetScaleMode, METH_O       },
     { "GetScaleMode", (PyCFunction)PySDL_Texture_GetScaleMode, METH_NOARGS  },
-#endif
-    { "GL_Bind",      (PyCFunction)PySDL_Texture_GL_Bind,      METH_NOARGS  },
-    { "GL_Unbind",    (PyCFunction)PySDL_Texture_GL_Unbind,    METH_NOARGS  },
     { NULL }
 };
 
@@ -72,10 +64,11 @@ static int PySDL_Texture_Type_init(PySDL_Texture *self, PyObject *args, PyObject
     // No renderer: internal allocation; the caller fills in ->texture.
     if(renderer && renderer != Py_None) {
         if(!PyObject_TypeCheck(renderer, &PySDL_Renderer_Type)) {
-            PyErr_SetString(PyExc_TypeError, "renderer must be an SDL2.Renderer");
+            PyErr_SetString(PyExc_TypeError, "renderer must be an SDL3.Renderer");
             return -1;
         }
-        self->texture = SDL_CreateTexture(((PySDL_Renderer *)renderer)->renderer, format, access, w, h);
+        self->texture = SDL_CreateTexture(((PySDL_Renderer *)renderer)->renderer,
+            (SDL_PixelFormat)format, (SDL_TextureAccess)access, w, h);
         if(NULL == self->texture) {
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
@@ -98,12 +91,34 @@ static PyObject * _raise(void) {
     return NULL;
 }
 
+// SDL3 dropped SDL_QueryTexture: format / access come from the texture's
+// properties, the size from SDL_GetTextureSize (floats).
+static bool _tex_info(SDL_Texture *tex, Uint32 *format, int *access, int *w, int *h) {
+    SDL_PropertiesID props = SDL_GetTextureProperties(tex);
+    if(0 == props) {
+        return false;
+    }
+    if(format) {
+        *format = (Uint32)SDL_GetNumberProperty(props, SDL_PROP_TEXTURE_FORMAT_NUMBER, SDL_PIXELFORMAT_UNKNOWN);
+    }
+    if(access) {
+        *access = (int)SDL_GetNumberProperty(props, SDL_PROP_TEXTURE_ACCESS_NUMBER, SDL_TEXTUREACCESS_STATIC);
+    }
+    if(w || h) {
+        float fw = 0, fh = 0;
+        if(!SDL_GetTextureSize(tex, &fw, &fh)) {
+            return false;
+        }
+        if(w) *w = (int)fw;
+        if(h) *h = (int)fh;
+    }
+    return true;
+}
+
 static PyObject * PySDL_Texture_Query(PySDL_Texture *self, PyObject *ign) {
     Uint32 format = 0;
-    int access = 0;
-    int width  = 0;
-    int height = 0;
-    if(0 > SDL_QueryTexture(self->texture, &format, &access, &width, &height)) {
+    int access = 0, width = 0, height = 0;
+    if(!_tex_info(self->texture, &format, &access, &width, &height)) {
         return _raise();
     }
     return Py_BuildValue("(Iiii)", format, access, width, height);
@@ -132,16 +147,16 @@ static PyObject * PySDL_Texture_Update(PySDL_Texture *self, PyObject *args, PyOb
     if(pitch <= 0) {
         Uint32 format = 0;
         int width = 0;
-        if(0 > SDL_QueryTexture(self->texture, &format, NULL, &width, NULL)) {
+        if(!_tex_info(self->texture, &format, NULL, &width, NULL)) {
             PyBuffer_Release(&pixels);
             return _raise();
         }
         pitch = (rp ? rect.w : width) * SDL_BYTESPERPIXEL(format);
     }
 
-    int rc = SDL_UpdateTexture(self->texture, rp, pixels.buf, pitch);
+    bool ok = SDL_UpdateTexture(self->texture, rp, pixels.buf, pitch);
     PyBuffer_Release(&pixels);
-    if(0 > rc) {
+    if(!ok) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -160,15 +175,14 @@ static PyObject * PySDL_Texture_UpdateYUV(PySDL_Texture *self, PyObject *args, P
 
     SDL_Rect rect;
     SDL_Rect *rp = NULL;
-    int ok = 1;
+    bool ok = true;
     if(rect_py && rect_py != Py_None) {
         ok = PyToRect(rect_py, &rect);
         rp = ok ? &rect : NULL;
     }
 
-    int rc = -1;
     if(ok) {
-        rc = SDL_UpdateYUVTexture(self->texture, rp,
+        ok = SDL_UpdateYUVTexture(self->texture, rp,
             yplane.buf, ypitch, uplane.buf, upitch, vplane.buf, vpitch);
     }
 
@@ -177,10 +191,7 @@ static PyObject * PySDL_Texture_UpdateYUV(PySDL_Texture *self, PyObject *args, P
     PyBuffer_Release(&vplane);
 
     if(!ok) {
-        return NULL;
-    }
-    if(0 > rc) {
-        return _raise();
+        return PyErr_Occurred() ? NULL : _raise();
     }
     Py_RETURN_NONE;
 }
@@ -202,14 +213,14 @@ static PyObject * PySDL_Texture_Lock(PySDL_Texture *self, PyObject *args) {
 
     void *pixels = NULL;
     int pitch = 0;
-    if(0 > SDL_LockTexture(self->texture, rp, &pixels, &pitch)) {
+    if(!SDL_LockTexture(self->texture, rp, &pixels, &pitch)) {
         return _raise();
     }
 
     int height;
     if(rp) {
         height = rect.h;
-    } else if(0 > SDL_QueryTexture(self->texture, NULL, NULL, NULL, &height)) {
+    } else if(!_tex_info(self->texture, NULL, NULL, NULL, &height)) {
         SDL_UnlockTexture(self->texture);
         return _raise();
     }
@@ -234,7 +245,7 @@ static PyObject * PySDL_Texture_SetColorMod(PySDL_Texture *self, PyObject *args)
     if(!PyArg_ParseTuple(args, "bbb", &r, &g, &b)) {
         return NULL;
     }
-    if(0 > SDL_SetTextureColorMod(self->texture, r, g, b)) {
+    if(!SDL_SetTextureColorMod(self->texture, r, g, b)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -242,7 +253,7 @@ static PyObject * PySDL_Texture_SetColorMod(PySDL_Texture *self, PyObject *args)
 
 static PyObject * PySDL_Texture_GetColorMod(PySDL_Texture *self, PyObject *ign) {
     Uint8 r = 0, g = 0, b = 0;
-    if(0 > SDL_GetTextureColorMod(self->texture, &r, &g, &b)) {
+    if(!SDL_GetTextureColorMod(self->texture, &r, &g, &b)) {
         return _raise();
     }
     return Py_BuildValue("(iii)", r, g, b);
@@ -253,7 +264,7 @@ static PyObject * PySDL_Texture_SetAlphaMod(PySDL_Texture *self, PyObject *arg) 
     if(-1 == a && PyErr_Occurred()) {
         return NULL;
     }
-    if(0 > SDL_SetTextureAlphaMod(self->texture, (Uint8)a)) {
+    if(!SDL_SetTextureAlphaMod(self->texture, (Uint8)a)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -261,7 +272,7 @@ static PyObject * PySDL_Texture_SetAlphaMod(PySDL_Texture *self, PyObject *arg) 
 
 static PyObject * PySDL_Texture_GetAlphaMod(PySDL_Texture *self, PyObject *ign) {
     Uint8 a = 0;
-    if(0 > SDL_GetTextureAlphaMod(self->texture, &a)) {
+    if(!SDL_GetTextureAlphaMod(self->texture, &a)) {
         return _raise();
     }
     return PyLong_FromLong(a);
@@ -272,7 +283,7 @@ static PyObject * PySDL_Texture_SetBlendMode(PySDL_Texture *self, PyObject *arg)
     if(-1 == mode && PyErr_Occurred()) {
         return NULL;
     }
-    if(0 > SDL_SetTextureBlendMode(self->texture, (SDL_BlendMode)mode)) {
+    if(!SDL_SetTextureBlendMode(self->texture, (SDL_BlendMode)mode)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -280,45 +291,27 @@ static PyObject * PySDL_Texture_SetBlendMode(PySDL_Texture *self, PyObject *arg)
 
 static PyObject * PySDL_Texture_GetBlendMode(PySDL_Texture *self, PyObject *ign) {
     SDL_BlendMode mode = SDL_BLENDMODE_NONE;
-    if(0 > SDL_GetTextureBlendMode(self->texture, &mode)) {
+    if(!SDL_GetTextureBlendMode(self->texture, &mode)) {
         return _raise();
     }
     return PyLong_FromLong(mode);
 }
 
-#if SDL_VERSION_ATLEAST(2,0,12)
 static PyObject * PySDL_Texture_SetScaleMode(PySDL_Texture *self, PyObject *arg) {
     long mode = PyLong_AsLong(arg);
     if(-1 == mode && PyErr_Occurred()) {
         return NULL;
     }
-    if(0 > SDL_SetTextureScaleMode(self->texture, (SDL_ScaleMode)mode)) {
+    if(!SDL_SetTextureScaleMode(self->texture, (SDL_ScaleMode)mode)) {
         return _raise();
     }
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Texture_GetScaleMode(PySDL_Texture *self, PyObject *ign) {
-    SDL_ScaleMode mode = SDL_ScaleModeNearest;
-    if(0 > SDL_GetTextureScaleMode(self->texture, &mode)) {
+    SDL_ScaleMode mode = SDL_SCALEMODE_NEAREST;
+    if(!SDL_GetTextureScaleMode(self->texture, &mode)) {
         return _raise();
     }
     return PyLong_FromLong(mode);
-}
-#endif
-
-static PyObject * PySDL_Texture_GL_Bind(PySDL_Texture *self, PyObject *ign) {
-    float w = 0;
-    float h = 0;
-    if(0 > SDL_GL_BindTexture(self->texture, &w, &h)) {
-        return _raise();
-    }
-    return Py_BuildValue("(ff)", w, h);
-}
-
-static PyObject * PySDL_Texture_GL_Unbind(PySDL_Texture *self, PyObject *ign) {
-    if(0 > SDL_GL_UnbindTexture(self->texture)) {
-        return _raise();
-    }
-    Py_RETURN_NONE;
 }

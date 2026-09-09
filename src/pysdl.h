@@ -55,7 +55,7 @@ typedef struct {
     PyObject_HEAD
     SDL_PixelFormat format;                 // the enum; SDL_PIXELFORMAT_UNKNOWN if uninitialised
     const SDL_PixelFormatDetails *details;  // cached by SDL, never freed
-    SDL_Palette *palette;                   // owned (SetPalette), or NULL
+    PyObject *palette;                      // borrowed SDL3.Palette wrapper (SetPalette), or NULL
 } PySDL_PixelFormat;
 extern PyTypeObject PySDL_PixelFormat_Type;
 

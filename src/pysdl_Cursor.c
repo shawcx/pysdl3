@@ -43,7 +43,7 @@ static int PySDL_Cursor_Type_init(PySDL_Cursor *self, PyObject *args, PyObject *
 
 static void PySDL_Cursor_Type_dealloc(PySDL_Cursor *self) {
     if(NULL != self->cursor && self->shouldFree) {
-        SDL_FreeCursor(self->cursor);
+        SDL_DestroyCursor(self->cursor);
     }
     self->cursor = NULL;
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -71,7 +71,7 @@ static PyObject * _wrap(SDL_Cursor *cursor, int borrowed) {
     PySDL_Cursor *wrapper = (PySDL_Cursor *)PySDL_New(&PySDL_Cursor_Type);
     if(NULL == wrapper) {
         if(!borrowed) {
-            SDL_FreeCursor(cursor);
+            SDL_DestroyCursor(cursor);
         }
         return NULL;
     }

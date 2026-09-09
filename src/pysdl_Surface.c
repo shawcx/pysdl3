@@ -113,7 +113,7 @@ static int PySDL_Surface_Type_init(PySDL_Surface *self, PyObject *args, PyObject
 static void PySDL_Surface_Type_dealloc(PySDL_Surface *self) {
     if(NULL != self->surface) {
         if(self->shouldFree) {
-            SDL_FreeSurface(self->surface);
+            SDL_DestroySurface(self->surface);
         }
         self->surface = NULL;
     }
@@ -135,11 +135,16 @@ static PyObject * _wrap(SDL_Surface *surface) {
     }
     PySDL_Surface *wrapper = (PySDL_Surface *)PySDL_New(&PySDL_Surface_Type);
     if(NULL == wrapper) {
-        SDL_FreeSurface(surface);
+        SDL_DestroySurface(surface);
         return NULL;
     }
     wrapper->surface = surface;
     return (PyObject *)wrapper;
+}
+
+// SDL3: the surface carries the format enum; details / palette are looked up.
+static const SDL_PixelFormatDetails * _details(SDL_Surface *s) {
+    return SDL_GetPixelFormatDetails(s->format);
 }
 
 //=========================================================
@@ -152,9 +157,9 @@ static PyObject * PySDL_Surface_getter(PyObject *self, void *param) {
     switch((long)param) {
     case PySDL_SURFACE_WIDTH:  return PyLong_FromLong(surface->w);
     case PySDL_SURFACE_HEIGHT: return PyLong_FromLong(surface->h);
-    case PySDL_SURFACE_BPP:    return PyLong_FromLong(surface->format->BitsPerPixel);
+    case PySDL_SURFACE_BPP:    return PyLong_FromLong(SDL_BITSPERPIXEL(surface->format));
     case PySDL_SURFACE_PITCH:  return PyLong_FromLong(surface->pitch);
-    case PySDL_SURFACE_FORMAT: return PyLong_FromUnsignedLong(surface->format->format);
+    case PySDL_SURFACE_FORMAT: return PyLong_FromUnsignedLong(surface->format);
     case PySDL_SURFACE_PIXELS:
         return PyBytes_FromStringAndSize(surface->pixels, (Py_ssize_t)surface->pitch * surface->h);
     }
@@ -192,7 +197,7 @@ static int PySDL_Surface_setter(PyObject *self, PyObject *value, void *param) {
 //=========================================================
 
 static PyObject * PySDL_Surface_LockSurface(PySDL_Surface *self, PyObject *ign) {
-    if(0 > SDL_LockSurface(self->surface)) {
+    if(!SDL_LockSurface(self->surface)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -208,7 +213,7 @@ static PyObject * PySDL_Surface_SaveBMP(PySDL_Surface *self, PyObject *arg) {
     if(NULL == path) {
         return NULL;
     }
-    if(0 > SDL_SaveBMP(self->surface, path)) {
+    if(!SDL_SaveBMP(self->surface, path)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -219,9 +224,8 @@ static PyObject * PySDL_Surface_SavePNG(PySDL_Surface *self, PyObject *arg) {
     if(NULL == path) {
         return NULL;
     }
-    if(0 > IMG_SavePNG(self->surface, path)) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
+    if(!IMG_SavePNG(self->surface, path)) {
+        return _raise();
     }
     Py_RETURN_NONE;
 }
@@ -234,9 +238,8 @@ static PyObject * PySDL_Surface_SaveJPG(PySDL_Surface *self, PyObject *args, PyO
     if(!PyArg_ParseTupleAndKeywords(args, kwds, "s|i", kwlist, &path, &quality)) {
         return NULL;
     }
-    if(0 > IMG_SaveJPG(self->surface, path, quality)) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
+    if(!IMG_SaveJPG(self->surface, path, quality)) {
+        return _raise();
     }
     Py_RETURN_NONE;
 }
@@ -282,7 +285,7 @@ static PyObject * PySDL_Surface_Blit(PySDL_Surface *self, PyObject *args, PyObje
     if(!_blit_args(args, kwds, &src, &srcrect, &sr, &dstrect, &dr)) {
         return NULL;
     }
-    if(0 > SDL_BlitSurface(src->surface, sr, self->surface, dr)) {
+    if(!SDL_BlitSurface(src->surface, sr, self->surface, dr)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -296,7 +299,7 @@ static PyObject * PySDL_Surface_BlitScaled(PySDL_Surface *self, PyObject *args, 
     if(!_blit_args(args, kwds, &src, &srcrect, &sr, &dstrect, &dr)) {
         return NULL;
     }
-    if(0 > SDL_BlitScaled(src->surface, sr, self->surface, dr)) {
+    if(!SDL_BlitSurfaceScaled(src->surface, sr, self->surface, dr, SDL_SCALEMODE_LINEAR)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -310,7 +313,7 @@ static PyObject * PySDL_Surface_SoftStretch(PySDL_Surface *self, PyObject *args,
     if(!_blit_args(args, kwds, &src, &srcrect, &sr, &dstrect, &dr)) {
         return NULL;
     }
-    if(0 > SDL_SoftStretch(src->surface, sr, self->surface, dr)) {
+    if(!SDL_StretchSurface(src->surface, sr, self->surface, dr, SDL_SCALEMODE_NEAREST)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -333,10 +336,10 @@ static PyObject * PySDL_Surface_FillRect(PySDL_Surface *self, PyObject *args) {
     }
 
     Uint32 color;
-    if(!PyToPixel(color_py, self->surface->format, &color)) {
+    if(!PyToPixel(color_py, _details(self->surface), SDL_GetSurfacePalette(self->surface), &color)) {
         return NULL;
     }
-    if(0 > SDL_FillRect(self->surface, rp, color)) {
+    if(!SDL_FillSurfaceRect(self->surface, rp, color)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -369,14 +372,14 @@ static PyObject * PySDL_Surface_FillRects(PySDL_Surface *self, PyObject *args) {
     Py_DECREF(fast);
 
     Uint32 color;
-    if(!PyToPixel(color_py, self->surface->format, &color)) {
+    if(!PyToPixel(color_py, _details(self->surface), SDL_GetSurfacePalette(self->surface), &color)) {
         PyMem_Free(rects);
         return NULL;
     }
 
-    int rc = SDL_FillRects(self->surface, rects, (int)n, color);
+    bool ok = SDL_FillSurfaceRects(self->surface, rects, (int)n, color);
     PyMem_Free(rects);
-    if(0 > rc) {
+    if(!ok) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -391,7 +394,7 @@ static PyObject * PySDL_Surface_MapRGB(PySDL_Surface *self, PyObject *arg) {
     if(!PyToColor(arg, &c)) {
         return NULL;
     }
-    return PyLong_FromUnsignedLong(SDL_MapRGB(self->surface->format, c.r, c.g, c.b));
+    return PyLong_FromUnsignedLong(SDL_MapSurfaceRGB(self->surface, c.r, c.g, c.b));
 }
 
 static PyObject * PySDL_Surface_MapRGBA(PySDL_Surface *self, PyObject *arg) {
@@ -399,21 +402,21 @@ static PyObject * PySDL_Surface_MapRGBA(PySDL_Surface *self, PyObject *arg) {
     if(!PyToColor(arg, &c)) {
         return NULL;
     }
-    return PyLong_FromUnsignedLong(SDL_MapRGBA(self->surface->format, c.r, c.g, c.b, c.a));
+    return PyLong_FromUnsignedLong(SDL_MapSurfaceRGBA(self->surface, c.r, c.g, c.b, c.a));
 }
 
 static PyObject * PySDL_Surface_GetPixelFormat(PySDL_Surface *self, PyObject *ign) {
-    // A standalone copy of the format enum (no shared palette).
-    SDL_PixelFormat *format = SDL_AllocFormat(self->surface->format->format);
-    if(NULL == format) {
+    const SDL_PixelFormatDetails *details = _details(self->surface);
+    if(NULL == details) {
         return _raise();
     }
     PySDL_PixelFormat *wrapper = (PySDL_PixelFormat *)PySDL_New(&PySDL_PixelFormat_Type);
     if(NULL == wrapper) {
-        SDL_FreeFormat(format);
         return NULL;
     }
-    wrapper->format = format;
+    wrapper->format  = self->surface->format;
+    wrapper->details = details;   // SDL-cached, never freed
+    wrapper->palette = NULL;
     return (PyObject *)wrapper;
 }
 
@@ -431,10 +434,10 @@ static PyObject * PySDL_Surface_SetColorKey(PySDL_Surface *self, PyObject *args,
     }
 
     Uint32 key;
-    if(!PyToPixel(key_py, self->surface->format, &key)) {
+    if(!PyToPixel(key_py, _details(self->surface), SDL_GetSurfacePalette(self->surface), &key)) {
         return NULL;
     }
-    if(0 > SDL_SetColorKey(self->surface, enable ? true : false, key)) {
+    if(!SDL_SetSurfaceColorKey(self->surface, enable ? true : false, key)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -442,7 +445,7 @@ static PyObject * PySDL_Surface_SetColorKey(PySDL_Surface *self, PyObject *args,
 
 static PyObject * PySDL_Surface_GetColorKey(PySDL_Surface *self, PyObject *ign) {
     Uint32 key = 0;
-    if(0 > SDL_GetColorKey(self->surface, &key)) {
+    if(!SDL_GetSurfaceColorKey(self->surface, &key)) {
         SDL_ClearError();  // "surface doesn't have a colorkey" is not an error here
         Py_RETURN_NONE;
     }
@@ -454,7 +457,7 @@ static PyObject * PySDL_Surface_SetBlendMode(PySDL_Surface *self, PyObject *arg)
     if(-1 == mode && PyErr_Occurred()) {
         return NULL;
     }
-    if(0 > SDL_SetSurfaceBlendMode(self->surface, (SDL_BlendMode)mode)) {
+    if(!SDL_SetSurfaceBlendMode(self->surface, (SDL_BlendMode)mode)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -462,7 +465,7 @@ static PyObject * PySDL_Surface_SetBlendMode(PySDL_Surface *self, PyObject *arg)
 
 static PyObject * PySDL_Surface_GetBlendMode(PySDL_Surface *self, PyObject *ign) {
     SDL_BlendMode mode = SDL_BLENDMODE_NONE;
-    if(0 > SDL_GetSurfaceBlendMode(self->surface, &mode)) {
+    if(!SDL_GetSurfaceBlendMode(self->surface, &mode)) {
         return _raise();
     }
     return PyLong_FromLong(mode);
@@ -473,7 +476,7 @@ static PyObject * PySDL_Surface_SetColorMod(PySDL_Surface *self, PyObject *args)
     if(!PyArg_ParseTuple(args, "bbb", &r, &g, &b)) {
         return NULL;
     }
-    if(0 > SDL_SetSurfaceColorMod(self->surface, r, g, b)) {
+    if(!SDL_SetSurfaceColorMod(self->surface, r, g, b)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -481,7 +484,7 @@ static PyObject * PySDL_Surface_SetColorMod(PySDL_Surface *self, PyObject *args)
 
 static PyObject * PySDL_Surface_GetColorMod(PySDL_Surface *self, PyObject *ign) {
     Uint8 r = 0, g = 0, b = 0;
-    if(0 > SDL_GetSurfaceColorMod(self->surface, &r, &g, &b)) {
+    if(!SDL_GetSurfaceColorMod(self->surface, &r, &g, &b)) {
         return _raise();
     }
     return Py_BuildValue("(iii)", r, g, b);
@@ -492,7 +495,7 @@ static PyObject * PySDL_Surface_SetAlphaMod(PySDL_Surface *self, PyObject *arg) 
     if(-1 == a && PyErr_Occurred()) {
         return NULL;
     }
-    if(0 > SDL_SetSurfaceAlphaMod(self->surface, (Uint8)a)) {
+    if(!SDL_SetSurfaceAlphaMod(self->surface, (Uint8)a)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -500,7 +503,7 @@ static PyObject * PySDL_Surface_SetAlphaMod(PySDL_Surface *self, PyObject *arg) 
 
 static PyObject * PySDL_Surface_GetAlphaMod(PySDL_Surface *self, PyObject *ign) {
     Uint8 a = 0;
-    if(0 > SDL_GetSurfaceAlphaMod(self->surface, &a)) {
+    if(!SDL_GetSurfaceAlphaMod(self->surface, &a)) {
         return _raise();
     }
     return PyLong_FromLong(a);
@@ -515,12 +518,12 @@ static PyObject * PySDL_Surface_SetClipRect(PySDL_Surface *self, PyObject *arg) 
         }
         rp = &rect;
     }
-    return PyBool_FromLong(SDL_SetClipRect(self->surface, rp));
+    return PyBool_FromLong(SDL_SetSurfaceClipRect(self->surface, rp));
 }
 
 static PyObject * PySDL_Surface_GetClipRect(PySDL_Surface *self, PyObject *ign) {
     SDL_Rect rect;
-    SDL_GetClipRect(self->surface, &rect);
+    SDL_GetSurfaceClipRect(self->surface, &rect);
     return RectToPy(&rect);
 }
 
@@ -529,7 +532,7 @@ static PyObject * PySDL_Surface_SetRLE(PySDL_Surface *self, PyObject *arg) {
     if(-1 == enable) {
         return NULL;
     }
-    if(0 > SDL_SetSurfaceRLE(self->surface, enable)) {
+    if(!SDL_SetSurfaceRLE(self->surface, enable)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -537,10 +540,10 @@ static PyObject * PySDL_Surface_SetRLE(PySDL_Surface *self, PyObject *arg) {
 
 static PyObject * PySDL_Surface_SetPalette(PySDL_Surface *self, PyObject *arg) {
     if(!PyObject_TypeCheck(arg, &PySDL_Palette_Type)) {
-        PyErr_SetString(PyExc_TypeError, "expected an SDL2.Palette");
+        PyErr_SetString(PyExc_TypeError, "expected an SDL3.Palette");
         return NULL;
     }
-    if(0 > SDL_SetSurfacePalette(self->surface, ((PySDL_Palette *)arg)->palette)) {
+    if(!SDL_SetSurfacePalette(self->surface, ((PySDL_Palette *)arg)->palette)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -552,21 +555,20 @@ static PyObject * PySDL_Surface_SetPalette(PySDL_Surface *self, PyObject *arg) {
 
 static PyObject * PySDL_Surface_Convert(PySDL_Surface *self, PyObject *args) {
     PyObject *format_py;
-    unsigned int flags = 0;
-    if(!PyArg_ParseTuple(args, "O|I", &format_py, &flags)) {
+    if(!PyArg_ParseTuple(args, "O", &format_py)) {
         return NULL;
     }
 
-    SDL_Surface *converted = NULL;
+    SDL_PixelFormat format;
     if(PyObject_TypeCheck(format_py, &PySDL_PixelFormat_Type)) {
-        converted = SDL_ConvertSurface(self->surface, ((PySDL_PixelFormat *)format_py)->format, flags);
+        format = ((PySDL_PixelFormat *)format_py)->format;
     } else if(PyLong_Check(format_py)) {
-        converted = SDL_ConvertSurfaceFormat(self->surface, (Uint32)PyLong_AsUnsignedLong(format_py), flags);
+        format = (SDL_PixelFormat)PyLong_AsUnsignedLong(format_py);
     } else {
-        PyErr_SetString(PyExc_TypeError, "expected a pixel-format enum int or SDL2.PixelFormat");
+        PyErr_SetString(PyExc_TypeError, "expected a pixel-format enum int or SDL3.PixelFormat");
         return NULL;
     }
-    return _wrap(converted);
+    return _wrap(SDL_ConvertSurface(self->surface, format));
 }
 
 static PyObject * PySDL_Surface_Duplicate(PySDL_Surface *self, PyObject *ign) {

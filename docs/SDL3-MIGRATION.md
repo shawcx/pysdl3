@@ -148,10 +148,40 @@ Deferred into their subsystem phases (they need the resignatured calls around
 them): the per-call error-idiom flip, `_raise()` helpers, RWops → IOStream in
 `LoadBMP` / `LoadImage` / `LoadWAV`, `GetBasePath` no longer freeing.
 
-### Phase D — Graphics core
+### Phase D — Graphics core — DONE
 
 `Video`, `Window`, `Renderer`, `Texture`, `Surface`, `PixelFormat`, `Palette`,
-`Cursor`.
+`Cursor`, plus the graphics / init / display / CPU / clipboard functions in
+`pysdl.c`. All eleven files compile clean against SDL3.
+
+Highlights of what landed (see the list below for the plan):
+`SDL_CreateWindow(title, w, h, flags)` + `SDL_SetWindowPosition`;
+`SDL_CreateRenderer(window, name)` + a new `Renderer.SetVSync`; the four
+`Copy*` names now alias `SDL_RenderTexture` / `SDL_RenderTextureRotated`
+(float rects, `RenderGeometry` vertex colours converted to `SDL_FColor`);
+`RenderSet*` → `SDL_SetRender*`, `RenderSetLogicalSize` gains a mode arg,
+`RenderSetIntegerScale` / `RenderTargetSupported` dropped;
+`GetRendererInfo` rebuilt over `SDL_GetRendererName` + renderer properties;
+`RenderReadPixels` consumes the `SDL_Surface` SDL3 now returns;
+`Texture.Query` rebuilt over `SDL_GetTextureSize` + properties, `GL_Bind`
+dropped; `Surface` reads its format enum, `SDL_DestroySurface`,
+`SDL_MapSurfaceRGB(A)`, `SDL_BlitSurfaceScaled` / `SDL_StretchSurface` with a
+scale mode, `SDL_FillSurfaceRect(s)`, `SDL_ConvertSurface(surface, format)`;
+`PixelFormat` holds `SDL_PixelFormatDetails` + a kept-alive `Palette`;
+`Palette` → `SDL_CreatePalette` / `SDL_DestroyPalette`; `Cursor` →
+`SDL_DestroyCursor`; displays enumerate via `SDL_GetDisplays` (new
+`SDL2.GetDisplays()`), modes via `SDL_GetFullscreenDisplayModes`,
+`GetDisplayDPI` dropped; `SDL_GL_DestroyContext`,
+`SDL_Vulkan_GetInstanceExtensions(&count)` (no window),
+`SDL_Vulkan_CreateSurface(..., NULL, ...)`; window gamma ramp / brightness
+dropped, grab → mouse grab, `SetWindowModalFor` → parent + modal,
+`GL_GetDrawableSize` → `SDL_GetWindowSizeInPixels`; `pysdl.c` `Init` default
+set, `SDL_GetNumLogicalCPUCores`, `SDL_GetSIMDAlignment`, packed
+`SDL_GetVersion`, `SDL_GetBasePath` not freed, `SDL_ScreenSaverEnabled`,
+`IMG_Init` / `IMG_Quit` / `GetTicks64` dropped, audio-device queries over the
+`SDL_AudioDeviceID` lists.
+
+Original plan:
 
 - `SDL_CreateWindow(title, w, h, flags)` + optional `SDL_SetWindowPosition`;
   drop `SDL_WINDOW_SHOWN`; window flags widen to `Uint64`.

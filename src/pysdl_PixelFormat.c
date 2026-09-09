@@ -26,25 +26,31 @@ static PyMethodDef PySDL_PixelFormat_methods[] = {
 #define PF_BMASK  5
 #define PF_AMASK  6
 
-// Every accessor goes through this: SDL_Alloc/Map/GetRGB do not tolerate a NULL
-// format, and `SDL2.PixelFormat()` (no arg) leaves one.
-static SDL_PixelFormat * _fmt(PySDL_PixelFormat *self) {
-    if(NULL == self->format) {
+// SDL3 splits the old SDL_PixelFormat struct into an enum plus a cached,
+// never-freed SDL_PixelFormatDetails. `SDL3.PixelFormat()` (no arg) leaves both
+// unset; every accessor goes through this guard.
+static const SDL_PixelFormatDetails * _fmt(PySDL_PixelFormat *self) {
+    if(NULL == self->details) {
         PyErr_SetString(pysdl_Error, "PixelFormat is not initialized");
         return NULL;
     }
-    return self->format;
+    return self->details;
+}
+
+// The SDL_Palette a SetPalette() call attached, or NULL.
+static SDL_Palette * _pal(PySDL_PixelFormat *self) {
+    return self->palette ? ((PySDL_Palette *)self->palette)->palette : NULL;
 }
 
 static PyObject * PySDL_PixelFormat_getter(PyObject *self, void *param) {
-    SDL_PixelFormat *fmt = _fmt((PySDL_PixelFormat *)self);
+    const SDL_PixelFormatDetails *fmt = _fmt((PySDL_PixelFormat *)self);
     if(NULL == fmt) {
         return NULL;
     }
     switch((long)param) {
     case PF_FORMAT: return PyLong_FromUnsignedLong(fmt->format);
-    case PF_BPP:    return PyLong_FromLong(fmt->BitsPerPixel);
-    case PF_BYTES:  return PyLong_FromLong(fmt->BytesPerPixel);
+    case PF_BPP:    return PyLong_FromLong(fmt->bits_per_pixel);
+    case PF_BYTES:  return PyLong_FromLong(fmt->bytes_per_pixel);
     case PF_RMASK:  return PyLong_FromUnsignedLong(fmt->Rmask);
     case PF_GMASK:  return PyLong_FromUnsignedLong(fmt->Gmask);
     case PF_BMASK:  return PyLong_FromUnsignedLong(fmt->Bmask);
@@ -83,45 +89,45 @@ static int PySDL_PixelFormat_Type_init(PySDL_PixelFormat *self, PyObject *args, 
         return -1;
     }
 
-    self->format = NULL;
+    self->format  = SDL_PIXELFORMAT_UNKNOWN;
+    self->details = NULL;
+    self->palette = NULL;
     if(format) {
-        self->format = SDL_AllocFormat(format);
-        if(NULL == self->format) {
+        self->details = SDL_GetPixelFormatDetails((SDL_PixelFormat)format);
+        if(NULL == self->details) {
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
         }
+        self->format = (SDL_PixelFormat)format;
     }
     return 0;
 }
 
 static void PySDL_PixelFormat_Type_dealloc(PySDL_PixelFormat *self) {
-    if(NULL != self->format) {
-        SDL_FreeFormat(self->format);
-        self->format = NULL;
-    }
+    Py_CLEAR(self->palette);  // details is SDL-cached, never freed
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
 static PyObject * PySDL_PixelFormat_MapRGB(PySDL_PixelFormat *self, PyObject *arg) {
-    SDL_PixelFormat *fmt = _fmt(self);
+    const SDL_PixelFormatDetails *fmt = _fmt(self);
     SDL_Color c;
     if(NULL == fmt || !PyToColor(arg, &c)) {
         return NULL;
     }
-    return PyLong_FromUnsignedLong(SDL_MapRGB(fmt, c.r, c.g, c.b));
+    return PyLong_FromUnsignedLong(SDL_MapRGB(fmt, _pal(self), c.r, c.g, c.b));
 }
 
 static PyObject * PySDL_PixelFormat_MapRGBA(PySDL_PixelFormat *self, PyObject *arg) {
-    SDL_PixelFormat *fmt = _fmt(self);
+    const SDL_PixelFormatDetails *fmt = _fmt(self);
     SDL_Color c;
     if(NULL == fmt || !PyToColor(arg, &c)) {
         return NULL;
     }
-    return PyLong_FromUnsignedLong(SDL_MapRGBA(fmt, c.r, c.g, c.b, c.a));
+    return PyLong_FromUnsignedLong(SDL_MapRGBA(fmt, _pal(self), c.r, c.g, c.b, c.a));
 }
 
 static PyObject * PySDL_PixelFormat_GetRGB(PySDL_PixelFormat *self, PyObject *arg) {
-    SDL_PixelFormat *fmt = _fmt(self);
+    const SDL_PixelFormatDetails *fmt = _fmt(self);
     if(NULL == fmt) {
         return NULL;
     }
@@ -130,12 +136,12 @@ static PyObject * PySDL_PixelFormat_GetRGB(PySDL_PixelFormat *self, PyObject *ar
         return NULL;
     }
     Uint8 r, g, b;
-    SDL_GetRGB((Uint32)pixel, fmt, &r, &g, &b);
+    SDL_GetRGB((Uint32)pixel, fmt, _pal(self), &r, &g, &b);
     return Py_BuildValue("(iii)", r, g, b);
 }
 
 static PyObject * PySDL_PixelFormat_GetRGBA(PySDL_PixelFormat *self, PyObject *arg) {
-    SDL_PixelFormat *fmt = _fmt(self);
+    const SDL_PixelFormatDetails *fmt = _fmt(self);
     if(NULL == fmt) {
         return NULL;
     }
@@ -144,22 +150,25 @@ static PyObject * PySDL_PixelFormat_GetRGBA(PySDL_PixelFormat *self, PyObject *a
         return NULL;
     }
     Uint8 r, g, b, a;
-    SDL_GetRGBA((Uint32)pixel, fmt, &r, &g, &b, &a);
+    SDL_GetRGBA((Uint32)pixel, fmt, _pal(self), &r, &g, &b, &a);
     return Py_BuildValue("(iiii)", r, g, b, a);
 }
 
+// SDL3 no longer attaches a palette to a format; the binding keeps the
+// SDL3.Palette alive and threads it through Map/GetRGB itself.
 static PyObject * PySDL_PixelFormat_SetPalette(PySDL_PixelFormat *self, PyObject *arg) {
-    SDL_PixelFormat *fmt = _fmt(self);
-    if(NULL == fmt) {
+    if(NULL == _fmt(self)) {
         return NULL;
+    }
+    if(arg == Py_None) {
+        Py_CLEAR(self->palette);
+        Py_RETURN_NONE;
     }
     if(!PyObject_TypeCheck(arg, &PySDL_Palette_Type)) {
-        PyErr_SetString(PyExc_TypeError, "expected an SDL2.Palette");
+        PyErr_SetString(PyExc_TypeError, "expected an SDL3.Palette or None");
         return NULL;
     }
-    if(0 > SDL_SetPixelFormatPalette(fmt, ((PySDL_Palette *)arg)->palette)) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
+    Py_INCREF(arg);
+    Py_XSETREF(self->palette, arg);
     Py_RETURN_NONE;
 }

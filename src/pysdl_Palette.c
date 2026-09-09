@@ -55,7 +55,7 @@ static int PySDL_Palette_Type_init(PySDL_Palette *self, PyObject *args, PyObject
 
     self->palette = NULL;
     if(ncolors > 0) {
-        self->palette = SDL_AllocPalette(ncolors);
+        self->palette = SDL_CreatePalette(ncolors);
         if(NULL == self->palette) {
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
@@ -66,7 +66,7 @@ static int PySDL_Palette_Type_init(PySDL_Palette *self, PyObject *args, PyObject
 
 static void PySDL_Palette_Type_dealloc(PySDL_Palette *self) {
     if(NULL != self->palette) {
-        SDL_FreePalette(self->palette);
+        SDL_DestroyPalette(self->palette);
         self->palette = NULL;
     }
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -106,9 +106,9 @@ static PyObject * PySDL_Palette_SetColors(PySDL_Palette *self, PyObject *args, P
     }
     Py_DECREF(fast);
 
-    int rc = SDL_SetPaletteColors(palette, colors, first, (int)n);
+    bool ok = SDL_SetPaletteColors(palette, colors, first, (int)n);
     PyMem_Free(colors);
-    if(0 > rc) {
+    if(!ok) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
