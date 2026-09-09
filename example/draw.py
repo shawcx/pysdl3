@@ -3,21 +3,22 @@
 # Primitives, blend modes, and a render-to-texture pass. Esc or close to quit.
 
 import math
-import SDL2
+import SDL3
 
-SDL2.Init(SDL2.INIT_VIDEO)
+SDL3.Init(SDL3.INIT_VIDEO)
 
 WIDTH, HEIGHT = 640, 480
 
-window = SDL2.Window('draw', (WIDTH, HEIGHT), flags=SDL2.WINDOW_RESIZABLE)
-renderer = window.CreateRenderer(flags=SDL2.RENDERER_ACCELERATED | SDL2.RENDERER_PRESENTVSYNC)
+window = SDL3.Window('draw', (WIDTH, HEIGHT), flags=SDL3.WINDOW_RESIZABLE)
+renderer = window.CreateRenderer()
+renderer.SetVSync(1)
 
 print('renderer:', renderer.GetRendererInfo()[0])
 print('output:  ', renderer.GetRendererOutputSize())
 
 # A little checker texture we can draw into once.
-sprite = SDL2.Texture(renderer, SDL2.PIXELFORMAT_RGBA8888, SDL2.TEXTUREACCESS_TARGET, (64, 64))
-sprite.SetBlendMode(SDL2.BLENDMODE_BLEND)
+sprite = SDL3.Texture(renderer, SDL3.PIXELFORMAT_RGBA8888, SDL3.TEXTUREACCESS_TARGET, (64, 64))
+sprite.SetBlendMode(SDL3.BLENDMODE_BLEND)
 renderer.SetRenderTarget(sprite)
 for y in range(8):
     for x in range(8):
@@ -25,19 +26,19 @@ for y in range(8):
         renderer.FillRect((x * 8, y * 8, 8, 8))
 renderer.SetRenderTarget(None)
 
-renderer.SetRenderDrawBlendMode(SDL2.BLENDMODE_BLEND)
+renderer.SetRenderDrawBlendMode(SDL3.BLENDMODE_BLEND)
 
 frame = 0
 running = True
 while running:
     while True:
-        event = SDL2.PollEvent()
+        event = SDL3.PollEvent()
         if event is None:
             break
         kind, data = event
-        if kind == SDL2.QUIT:
+        if kind == SDL3.EVENT_QUIT:
             running = False
-        elif kind == SDL2.KEYDOWN and data[2] == SDL2.K_ESCAPE:
+        elif kind == SDL3.EVENT_KEY_DOWN and data[2] == SDL3.K_ESCAPE:
             running = False
 
     frame += 1
@@ -78,4 +79,4 @@ while running:
 
     renderer.Present()
 
-SDL2.Quit()
+SDL3.Quit()

@@ -5,12 +5,12 @@
 # recent mouse trail is drawn dashed. Esc or close to quit.
 
 import collections
-import SDL2
+import SDL3
 
-SDL2.Init(SDL2.INIT_VIDEO)
+SDL3.Init(SDL3.INIT_VIDEO)
 
 W, H = 640, 480
-window = SDL2.Window('rects', (W, H))
+window = SDL3.Window('rects', (W, H))
 renderer = window.CreateRenderer()
 
 FIXED = (200, 150, 240, 180)
@@ -27,7 +27,7 @@ def frame():
     renderer.Clear()
 
     # union outline
-    if union := SDL2.UnionRect(FIXED, moving):
+    if union := SDL3.UnionRect(FIXED, moving):
         renderer.SetRenderDrawColor(70, 70, 110, 255)
         renderer.DrawRect(union)
 
@@ -38,13 +38,13 @@ def frame():
     renderer.DrawRect(moving)
 
     # intersection, filled
-    if hit := SDL2.IntersectRect(FIXED, moving):
+    if hit := SDL3.IntersectRect(FIXED, moving):
         renderer.SetRenderDrawColor(120, 220, 160, 130)
-        renderer.SetRenderDrawBlendMode(SDL2.BLENDMODE_BLEND)
+        renderer.SetRenderDrawBlendMode(SDL3.BLENDMODE_BLEND)
         renderer.FillRect(hit)
 
     # box enclosing the mouse trail
-    if len(trail) > 1 and (box := SDL2.EnclosePoints(list(trail))):
+    if len(trail) > 1 and (box := SDL3.EnclosePoints(list(trail))):
         renderer.SetRenderDrawColor(200, 90, 200, 255)
         x, y, w, h = box
         for i in range(0, w, 12):
@@ -55,7 +55,7 @@ def frame():
             renderer.DrawLine(x + w, y + i, x + w, y + min(i + 6, h))
 
     # a line clipped to the fixed rect
-    clipped = SDL2.IntersectRectAndLine(FIXED, (0, 0, mx, my))
+    clipped = SDL3.IntersectRectAndLine(FIXED, (0, 0, mx, my))
     if clipped:
         renderer.SetRenderDrawColor(255, 255, 255, 255)
         renderer.DrawLine(*clipped)
@@ -66,18 +66,18 @@ def frame():
 frame()
 running = True
 while running:
-    event = SDL2.WaitEvent()
+    event = SDL3.WaitEvent()
     if event is None:
         continue
     kind, data = event
 
-    if kind == SDL2.QUIT:
+    if kind == SDL3.EVENT_QUIT:
         running = False
-    elif kind == SDL2.KEYDOWN and data[2] == SDL2.K_ESCAPE:
+    elif kind == SDL3.EVENT_KEY_DOWN and data[2] == SDL3.K_ESCAPE:
         running = False
-    elif kind == SDL2.MOUSEMOTION:
+    elif kind == SDL3.EVENT_MOUSE_MOTION:
         mouse = (data[1], data[2])
         trail.append(mouse)
         frame()
 
-SDL2.Quit()
+SDL3.Quit()

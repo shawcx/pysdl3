@@ -2,21 +2,21 @@
 
 # For LCD monitors using a VGA connection run this program then "auto-adjust" the monitor
 
-import SDL2
+import SDL3
 
-# Initialize SDL2
-SDL2.Init(SDL2.INIT_VIDEO)
+# Initialize SDL3
+SDL3.Init(SDL3.INIT_VIDEO)
 
-numberOfDisplays = SDL2.GetNumVideoDisplays()
+numberOfDisplays = SDL3.GetNumVideoDisplays()
 
 windows = []
 for i in range(numberOfDisplays):
-    x,y,w,h = SDL2.GetDisplayBounds(i)
-    window = SDL2.Window("Adjust", size=(w,h), position=(x,y), flags=SDL2.WINDOW_FULLSCREEN)
+    x,y,w,h = SDL3.GetDisplayBounds(i)
+    window = SDL3.Window("Adjust", size=(w,h), position=(x,y), flags=SDL3.WINDOW_FULLSCREEN)
     windows.append((window, w, h))
 
 # Hide the cursor
-SDL2.ShowCursor(SDL2.DISABLE)
+SDL3.ShowCursor(SDL3.DISABLE)
 
 white = b'\xff\xff\xff\x00'
 black = b'\x00\x00\x00\x00'
@@ -29,13 +29,13 @@ for window,w,h in windows:
     window.UpdateWindowSurface()
 
 while True:
-    event = SDL2.WaitEvent()
+    event = SDL3.WaitEvent()
     if event:
-        if SDL2.QUIT == event[0]:
+        if SDL3.EVENT_QUIT == event[0]:
             break
-        if SDL2.KEYUP == event[0]:
+        if SDL3.EVENT_KEY_UP == event[0]:
             break
 
 # Show the cursor
-SDL2.ShowCursor(SDL2.ENABLE)
-SDL2.Quit()
+SDL3.ShowCursor(SDL3.ENABLE)
+SDL3.Quit()

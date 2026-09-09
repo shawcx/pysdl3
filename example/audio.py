@@ -7,7 +7,7 @@ import random
 import struct
 import time
 
-import SDL2
+import SDL3
 import pygl as GL
 
 SAMPLES=4096
@@ -57,7 +57,7 @@ class Noise:
         return self.y
 
 
-class Audio(SDL2.Audio):
+class Audio(SDL3.Audio):
     def __init__(self):
         super(Audio, self).__init__()
         self.gl = []
@@ -87,12 +87,12 @@ class Audio(SDL2.Audio):
 
 
 def main():
-    SDL2.Init()
+    SDL3.Init()
 
-    audioDevices = SDL2.GetNumAudioDevices()
+    audioDevices = SDL3.GetNumAudioDevices()
     if 1 == len(sys.argv):
         for idx in range(audioDevices):
-            print(idx, SDL2.GetAudioDeviceName(idx))
+            print(idx, SDL3.GetAudioDeviceName(idx))
         sys.exit(0)
 
     index = int(sys.argv[1])
@@ -100,21 +100,21 @@ def main():
         print('Out of range')
         sys.exit(0)
 
-    SDL2.GL_SetAttribute(SDL2.GL_DOUBLEBUFFER, 0)
-    SDL2.GL_SetAttribute(SDL2.GL_BUFFER_SIZE, 32)
+    SDL3.GL_SetAttribute(SDL3.GL_DOUBLEBUFFER, 0)
+    SDL3.GL_SetAttribute(SDL3.GL_BUFFER_SIZE, 32)
 
-    SDL2.GL_SetAttribute(SDL2.GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL2.GL_SetAttribute(SDL2.GL_CONTEXT_MINOR_VERSION, 1);
+    SDL3.GL_SetAttribute(SDL3.GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL3.GL_SetAttribute(SDL3.GL_CONTEXT_MINOR_VERSION, 1);
 
-    flags,width,height,rate = SDL2.GetDesktopDisplayMode(0)
+    flags,width,height,rate = SDL3.GetDesktopDisplayMode(0)
     print('  ', f'Display Mode: {width}x{height} @ {rate}Hz')
 
-    dc = SDL2.Window("Audio", size=(width,height), flags=SDL2.WINDOW_OPENGL | SDL2.WINDOW_FULLSCREEN_DESKTOP)
+    dc = SDL3.Window("Audio", size=(width,height), flags=SDL3.WINDOW_OPENGL | SDL3.WINDOW_FULLSCREEN_DESKTOP)
     dc.GL_CreateContext()
     dc.GL_MakeCurrent()
     GL.glewInit()
 
-    SDL2.GL_SetSwapInterval(1)
+    SDL3.GL_SetSwapInterval(1)
 
     GL.ClearColor(0.01, 0.01, 0.01, 0.0)
     GL.ShadeModel(GL.SMOOTH)
@@ -155,9 +155,9 @@ def main():
     gdir = 1
     bdir = 1
 
-    name = SDL2.GetAudioDeviceName(index)
+    name = SDL3.GetAudioDeviceName(index)
     print('Opening', name )
-    audio = Audio()
+    audio = SDL3.Audio()
     audio.Open(name)
 
     points = 1
@@ -166,64 +166,64 @@ def main():
     quit = False
     while not quit:
         while True:
-            event = SDL2.PollEvent()
+            event = SDL3.PollEvent()
             if not event:
                 break
             event,data = event
 
-            if SDL2.QUIT == event:
+            if SDL3.EVENT_QUIT == event:
                 quit = True
                 break
 
-            elif SDL2.MOUSEMOTION == event:
+            elif SDL3.EVENT_MOUSE_MOTION == event:
                 audio.generators[0].frequency(data[1] + 100)
                 audio.generators[1].frequency(data[2] * 4 + 100)
                 audio.generators[2].frequency(data[2] * 4 + 100)
                 r = data[1] / width
                 g = data[2] / height
 
-            elif SDL2.KEYDOWN == event:
-                if SDL2.GetModState() & (SDL2.KMOD_LSHIFT | SDL2.KMOD_RSHIFT):
+            elif SDL3.EVENT_KEY_DOWN == event:
+                if SDL3.GetModState() & (SDL3.KMOD_LSHIFT | SDL3.KMOD_RSHIFT):
                     mult = 0.1
                 else:
                     mult = 1
                 # quit on escape
-                if SDL2.K_ESCAPE == data[2]:
+                if SDL3.K_ESCAPE == data[2]:
                     quit = True
                     break
 
-                if SDL2.K_p == data[2]:
+                if SDL3.K_P == data[2]:
                     audio.Pause(paused)
                     paused = 0 if paused else 1
 
-                if SDL2.K_q == data[2]:
+                if SDL3.K_Q == data[2]:
                     points = 0 if points else 1
 
-                if SDL2.K_d == data[2]:
+                if SDL3.K_D == data[2]:
                     f = audio.generators[0].freq - 1 * mult
                     audio.generators[0].frequency(f)
-                if SDL2.K_f == data[2]:
+                if SDL3.K_F == data[2]:
                     f = audio.generators[0].freq + 1 * mult
                     audio.generators[0].frequency(f)
-                if SDL2.K_g == data[2]:
+                if SDL3.K_G == data[2]:
                     if audio.generators[0].amp == -1:
                         audio.generators[0].amplify(1.0)
                     else:
                         audio.generators[0].amplify(0)
 
-                if SDL2.K_c == data[2]:
+                if SDL3.K_C == data[2]:
                     f = audio.generators[1].freq - 1 * mult
                     audio.generators[1].frequency(f)
-                if SDL2.K_v == data[2]:
+                if SDL3.K_V == data[2]:
                     f = audio.generators[1].freq + 1 * mult
                     audio.generators[1].frequency(f)
-                if SDL2.K_b == data[2]:
+                if SDL3.K_B == data[2]:
                     if audio.generators[1].amp == -1:
                         audio.generators[1].amplify(1.0)
                     else:
                         audio.generators[1].amplify(0)
 
-                if SDL2.K_n == data[2]:
+                if SDL3.K_n == data[2]:
                     if audio.generators[2].amp == -1:
                         audio.generators[2].amplify(0.3)
                     else:
@@ -269,7 +269,7 @@ def main():
 
     #audio.Close()
 
-    SDL2.Quit()
+    SDL3.Quit()
 
 if '__main__' == __name__:
     main()

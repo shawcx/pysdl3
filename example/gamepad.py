@@ -7,32 +7,32 @@
 # with the number keys 0-5 (needs SDL >= 2.0.14).
 
 import sys
-import SDL2
+import SDL3
 
-SDL2.Init(SDL2.INIT_VIDEO | SDL2.INIT_JOYSTICK | SDL2.INIT_GAMECONTROLLER)
+SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_JOYSTICK | SDL3.INIT_GAMECONTROLLER)
 
 AXIS_NAMES = {
-    SDL2.CONTROLLER_AXIS_LEFTX: 'LeftX', SDL2.CONTROLLER_AXIS_LEFTY: 'LeftY',
-    SDL2.CONTROLLER_AXIS_RIGHTX: 'RightX', SDL2.CONTROLLER_AXIS_RIGHTY: 'RightY',
-    SDL2.CONTROLLER_AXIS_TRIGGERLEFT: 'TrigL', SDL2.CONTROLLER_AXIS_TRIGGERRIGHT: 'TrigR',
+    SDL3.GAMEPAD_AXIS_LEFTX: 'LeftX', SDL3.GAMEPAD_AXIS_LEFTY: 'LeftY',
+    SDL3.GAMEPAD_AXIS_RIGHTX: 'RightX', SDL3.GAMEPAD_AXIS_RIGHTY: 'RightY',
+    SDL3.GAMEPAD_AXIS_TRIGGERLEFT: 'TrigL', SDL3.GAMEPAD_AXIS_TRIGGERRIGHT: 'TrigR',
 }
 
-window = SDL2.Window('gamepad', (360, 120))
+window = SDL3.Window('gamepad', (360, 120))
 
 controllers = {}   # instance id -> GameController
 joysticks = {}     # instance id -> Joystick
 
 
 def add_device(device_index):
-    if SDL2.IsGameController(device_index):
-        gc = SDL2.GameController(device_index)
+    if SDL3.IsGameController(device_index):
+        gc = SDL3.Gamepad(device_index)
         iid = gc.GetJoystick().InstanceID()
         if iid in controllers:
             return
         controllers[iid] = gc
         print(f'+ controller {iid}: {gc.Name()!r}')
     else:
-        js = SDL2.Joystick(device_index)
+        js = SDL3.Joystick(device_index)
         if js.InstanceID() in joysticks:
             return
         joysticks[js.InstanceID()] = js
@@ -41,55 +41,55 @@ def add_device(device_index):
 
 
 virtual_index = None
-if '--virtual' in sys.argv and hasattr(SDL2, 'JoystickAttachVirtual'):
-    virtual_index = SDL2.JoystickAttachVirtual(SDL2.JOYSTICK_TYPE_GAMECONTROLLER, 6, 8, 1)
-    vjs = SDL2.Joystick(virtual_index)
+if '--virtual' in sys.argv and hasattr(SDL3, 'JoystickAttachVirtual'):
+    virtual_index = SDL3.JoystickAttachVirtual(SDL3.JOYSTICK_TYPE_GAMEPAD, 6, 8, 1)
+    vjs = SDL3.Joystick(virtual_index)
     print('attached virtual joystick; press number keys 0-5 to nudge its axes')
 
-for i in range(SDL2.NumJoysticks()):
+for device_index in SDL3.GetJoysticks():
     add_device(i)
 
 running = True
 while running:
-    event = SDL2.WaitEvent()
+    event = SDL3.WaitEvent()
     if event is None:
         continue
     kind, data = event
 
-    if kind == SDL2.QUIT:
+    if kind == SDL3.EVENT_QUIT:
         running = False
 
-    elif kind in (SDL2.CONTROLLERDEVICEADDED, SDL2.JOYDEVICEADDED):
+    elif kind in (SDL3.CONTROLLERDEVICEADDED, SDL3.JOYDEVICEADDED):
         add_device(data[0])
-    elif kind in (SDL2.CONTROLLERDEVICEREMOVED, SDL2.JOYDEVICEREMOVED):
+    elif kind in (SDL3.CONTROLLERDEVICEREMOVED, SDL3.JOYDEVICEREMOVED):
         controllers.pop(data[0], None)
         joysticks.pop(data[0], None)
         print(f'- device {data[0]} removed')
 
-    elif kind == SDL2.CONTROLLERAXISMOTION:
+    elif kind == SDL3.EVENT_GAMEPAD_AXIS_MOTION:
         which, axis, value = data
         if abs(value) > 8000:
             print(f'  [{which}] {AXIS_NAMES.get(axis, axis):>6} = {value:+6d}')
-    elif kind in (SDL2.CONTROLLERBUTTONDOWN, SDL2.CONTROLLERBUTTONUP):
+    elif kind in (SDL3.EVENT_GAMEPAD_BUTTON_DOWN, SDL3.EVENT_GAMEPAD_BUTTON_UP):
         which, button, state = data
         gc = controllers.get(which)
         if gc:
             gc.Rumble(0x8000, 0x8000, 120) if state else None
         print(f'  [{which}] button {button} {"down" if state else "up"}')
 
-    elif kind == SDL2.JOYHATMOTION:
+    elif kind == SDL3.EVENT_JOYSTICK_HAT_MOTION:
         print(f'  [{data[0]}] hat {data[1]} -> {data[2]}')
-    elif kind in (SDL2.JOYBUTTONDOWN, SDL2.JOYBUTTONUP):
+    elif kind in (SDL3.EVENT_JOYSTICK_BUTTON_DOWN, SDL3.EVENT_JOYSTICK_BUTTON_UP):
         print(f'  [{data[0]}] joy button {data[1]} {"down" if data[2] else "up"}')
 
-    elif kind == SDL2.KEYDOWN and virtual_index is not None:
+    elif kind == SDL3.EVENT_KEY_DOWN and virtual_index is not None:
         sym = data[2]
-        if SDL2.K_0 <= sym <= SDL2.K_5:
-            axis = sym - SDL2.K_0
+        if SDL3.K_0 <= sym <= SDL3.K_5:
+            axis = sym - SDL3.K_0
             vjs.SetVirtualAxis(axis, 20000)
-        elif sym == SDL2.K_ESCAPE:
+        elif sym == SDL3.K_ESCAPE:
             running = False
 
 if virtual_index is not None:
-    SDL2.JoystickDetachVirtual(virtual_index)
-SDL2.Quit()
+    SDL3.JoystickDetachVirtual(virtual_index)
+SDL3.Quit()

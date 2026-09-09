@@ -1,35 +1,35 @@
 #!/usr/bin/env python3
 
-# A fixed-rate animation driven by SDL2.Timer. The timer callback runs on SDL's
+# A fixed-rate animation driven by SDL3.Timer. The timer callback runs on SDL's
 # timer thread, so it does not touch the renderer - it just pushes a REDRAW
 # event that the main loop handles. The title shows battery / power state.
 # Esc or close to quit.
 
 import math
-import SDL2
+import SDL3
 
-SDL2.Init(SDL2.INIT_VIDEO | SDL2.INIT_TIMER | SDL2.INIT_EVENTS)
+SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_TIMER | SDL3.INIT_EVENTS)
 
 W, H = 400, 400
-window = SDL2.Window('timer', (W, H))
-renderer = window.CreateRenderer(flags=SDL2.RENDERER_ACCELERATED)
+window = SDL3.Window('timer', (W, H))
+renderer = window.CreateRenderer()
 
-REDRAW = SDL2.RegisterEvents(1)
+REDRAW = SDL3.RegisterEvents(1)
 
 frame = 0
 
 
 def on_tick(interval):
     # 60 Hz; return the interval to keep going, 0 to stop.
-    SDL2.PushEvent(REDRAW)
+    SDL3.PushEvent(REDRAW)
     return interval
 
 
-timer = SDL2.Timer(1000 // 60, on_tick)
+timer = SDL3.Timer(1000 // 60, on_tick)
 
-POWER = {SDL2.POWERSTATE_UNKNOWN: '?', SDL2.POWERSTATE_ON_BATTERY: 'battery',
-         SDL2.POWERSTATE_NO_BATTERY: 'AC', SDL2.POWERSTATE_CHARGING: 'charging',
-         SDL2.POWERSTATE_CHARGED: 'charged'}
+POWER = {SDL3.POWERSTATE_UNKNOWN: '?', SDL3.POWERSTATE_ON_BATTERY: 'battery',
+         SDL3.POWERSTATE_NO_BATTERY: 'AC', SDL3.POWERSTATE_CHARGING: 'charging',
+         SDL3.POWERSTATE_CHARGED: 'charged'}
 
 
 def render():
@@ -56,23 +56,23 @@ def render():
     renderer.Present()
 
     if frame % 30 == 0:
-        state, secs, pct = SDL2.GetPowerInfo()
+        state, secs, pct = SDL3.GetPowerInfo()
         window.SetWindowTitle(f'timer  |  {frame} frames  |  {POWER[state]} {pct}%')
 
 
 running = True
 while running:
-    event = SDL2.WaitEvent()
+    event = SDL3.WaitEvent()
     if event is None:
         continue
     kind, data = event
 
     if kind == REDRAW:
         render()
-    elif kind == SDL2.QUIT:
+    elif kind == SDL3.EVENT_QUIT:
         running = False
-    elif kind == SDL2.KEYDOWN and data[2] == SDL2.K_ESCAPE:
+    elif kind == SDL3.EVENT_KEY_DOWN and data[2] == SDL3.K_ESCAPE:
         running = False
 
 timer.Remove()
-SDL2.Quit()
+SDL3.Quit()

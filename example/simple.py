@@ -2,14 +2,14 @@
 
 import sys
 import time
-import SDL2
+import SDL3
 
 imagePath = sys.argv[1]
 
-SDL2.Init()
+SDL3.Init()
 
-surface = SDL2.LoadImage(imagePath)
-window = SDL2.Window(imagePath, (surface.w,surface.h))
+surface = SDL3.LoadImage(imagePath)
+window = SDL3.Window(imagePath, (surface.w,surface.h))
 
 window.SetWindowIcon(surface)
 
@@ -34,36 +34,36 @@ renderer.Present()
 quit = False
 while not quit:
     while True:
-        result = SDL2.PollEvent()
+        result = SDL3.PollEvent()
         if result is None:
             break
 
         event,data = result
 
-        if SDL2.QUIT == event:
+        if SDL3.EVENT_QUIT == event:
             quit = True
             break
 
-        if SDL2.KEYDOWN == event:
+        if SDL3.EVENT_KEY_DOWN == event:
             # quit on escape
-            if SDL2.K_ESCAPE == data[2]:
+            if SDL3.K_ESCAPE == data[2]:
                 quit = True
                 break
-            if SDL2.K_h == data[2]:
+            if SDL3.K_h == data[2]:
                 window.HideWindow()
                 break
-            if SDL2.K_m == data[2]:
+            if SDL3.K_M == data[2]:
                 window.MinimizeWindow()
                 break
 #            # take a screenshot on c
-#            if SDL2.K_c == data[2]:
+#            if SDL3.K_C == data[2]:
 #                self.Capture()
 #            # display info on i
-#            if SDL2.K_i == data[2]:
+#            if SDL3.K_I == data[2]:
 #                self.fnInfo()
 
 del texture
 del renderer
 del window
 
-SDL2.Quit()
+SDL3.Quit()
