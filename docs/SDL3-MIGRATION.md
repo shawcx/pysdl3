@@ -103,13 +103,30 @@ Compilation does **not** succeed at the end of Phase A — every later phase sti
 uses SDL2 APIs. The deliverable is: the build system targets SDL3 and
 `gen_constants.py` runs against the SDL3 headers so Phase B can proceed.
 
-### Phase B — Constants
+### Phase B — Constants — DONE
 
-Regenerate `src/_constants.c` from the SDL3 headers. Drop removed families
-(`INIT_NOPARACHUTE`, `WINDOW_SHOWN`, `WINDOW_FULLSCREEN_DESKTOP`, `IMG_INIT_*`,
-`SDL_QUERY` / `IGNORE` / `ENABLE`, gesture events, `AUDIO_ALLOW_*`,
-`MIX_MAXVOLUME`, most `SDL_RENDERER_*` flags). Re-guard enum members with
-`SDL_VERSION_ATLEAST(3, x, 0)`. Rewrite `tests/test_constants.py`.
+`src/_constants.c` is now machine-generated: `tools/gen_constants.py --generate`
+emits the whole `_constants(module)` body from the installed SDL3 headers —
+a curated header allowlist (`_GEN_HEADERS`), a blocklist of construction
+machinery / string-property names / reserved slots (`_GEN_BLOCK`), and a short
+`_GEN_EXTRA` for synthesized constants. Regenerate rather than hand-editing;
+one-off additions can go in `_GEN_EXTRA` or a hand block.
+
+- ~1050 constants, all SDL3-named (`EVENT_KEY_DOWN`, `KMOD_CTRL`, `K_A`,
+  `GAMEPAD_BUTTON_SOUTH`, `AUDIO_S16`, `SYSTEM_CURSOR_DEFAULT`,
+  `LOGICAL_PRESENTATION_*`).
+- Gone: `ENABLE` / `DISABLE` / `QUERY`, `KEYDOWN` & friends, `WINDOWEVENT*`,
+  `WINDOW_SHOWN`, `WINDOW_FULLSCREEN_DESKTOP`, `RENDERER_ACCELERATED` /
+  `PRESENTVSYNC`, gesture events, `AUDIO_ALLOW_*`, `AUDIO_*SYS`, `MIX_MAXVOLUME`,
+  `INIT_NOPARACHUTE` / `INIT_TIMER`, `IMG_INIT_*`, `SYSWMEVENT`.
+- Synthesized: `INIT_EVERYTHING` = `VIDEO | AUDIO | EVENTS | JOYSTICK | GAMEPAD`.
+- No `SDL_VERSION_ATLEAST` guards — the binding targets SDL 3.2+.
+- `tests/test_constants.py` rewritten: samples the SDL3 names and asserts the
+  removed SDL2 names are absent.
+
+Verified: `_constants.c` compiles clean against the SDL3 headers in isolation
+(the only error in a full `pysdl.h` include is the not-yet-renamed
+`SDL_GameController` struct member — Phase G).
 
 ### Phase C — Cross-cutting sweep + `pysdl_util.c`
 
