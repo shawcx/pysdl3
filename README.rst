@@ -1,13 +1,14 @@
-
-SDL2
+SDL3
 ====
 
-Python3 bindings for libSDL2
+Python 3 bindings for SDL3 (with SDL3_image).
 
 Debian / Ubuntu
 ---------------
-	* apt install libsdl2-dev libsdl2-image-dev
+	* apt install libsdl3-dev libsdl3-image-dev
+
+  (SDL3 packages are available from Debian Trixie / Ubuntu 24.10 onward.)
 
 macOS
 -----
-	* brew install sdl2 sdl2_image
+	* brew install sdl3 sdl3_image

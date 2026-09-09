@@ -283,7 +283,21 @@ bound stream (`SDL_PutAudioStreamData` / `SDL_GetAudioStreamData` /
 `AudioQuit`. `AudioStream`: `SDL_CreateAudioStream(&src, &dst)` + the
 `SDL_*AudioStream*` renames; keep the six-int constructor.
 
-### Phase G — Input devices
+### Phase G — Input devices — DONE (with Phase H)
+
+`Joystick`, `Gamepad` (`git mv pysdl_GameController.c pysdl_Gamepad.c`),
+`Haptic`, `Sensor` — all switched to the `SDL_*ID` model
+(`SDL_OpenJoystick` / `SDL_OpenGamepad` / `SDL_OpenHaptic` / `SDL_OpenSensor`),
+with `GetJoysticks()` / `GetHaptics()` / `GetSensors()` returning ID lists and
+the mass method renames. `Gamepad` is the SDL3 type name; `GameController` is a
+module alias, `INIT_GAMECONTROLLER` an `_GEN_EXTRA` alias. `Haptic.Index()` →
+`SDL_GetHapticID`; virtual joystick via `SDL_AttachVirtualJoystick` + a
+`SDL_INIT_INTERFACE`-initialised desc. Timer callback took the new
+`(userdata, timerID, interval)` signature; `pysdl_Rect.c` took the
+`SDL_HasIntersection` → `SDL_HasRectIntersection` family renames. **The whole
+extension builds, links and imports under the dummy driver from this point.**
+
+Original plan:
 
 `Joystick`, `Gamepad` (renamed from `GameController`), `Haptic`, `Sensor`.
 
@@ -296,33 +310,50 @@ All switch from device-index to instance-ID enumeration (`SDL_GetJoysticks` /
 joystick now takes a descriptor struct. `git mv` the `.c` file, its test, and its
 example so history follows.
 
-### Phase H — Timers / system misc
+### Phase H — Timers / system misc — DONE
 
-`GetTicks` → 64-bit, drop `GetTicks64`. `SDL_AddTimer` callback signature
-(`(userdata, timerID, interval)`). Screensaver / clipboard bool returns;
-`SDL_IsScreenSaverEnabled` → `SDL_ScreenSaverEnabled`. `SDL_GetCPUCount` →
-`SDL_GetNumLogicalCPUCores`; drop the removed `Has*`; `SDL_SIMDGetAlignment` →
-`SDL_GetSIMDAlignment`. `Version` / `GetVersion` over the packed-int
-`SDL_GetVersion()` + `SDL_VERSIONNUM_*` macros.
+Folded into phases D and G: `GetTicks` → 64-bit (`GetTicks64` dropped), the
+`SDL_AddTimer` callback signature, screensaver / clipboard bool returns,
+`SDL_ScreenSaverEnabled`, `SDL_GetNumLogicalCPUCores`, `SDL_GetSIMDAlignment`,
+the removed `Has*` probes, and the packed-int `SDL_GetVersion()` /
+`SDL_VERSIONNUM_*` version accessors.
 
-### Phase I — Examples
+### Phase I — Examples — DONE
 
-Port all 14: `draw`, `keyboard`, `gamepad`, `audio`, `wav`, `events`, `window`,
-`timer`, `info`, `surface`, `rects`, `simple`, `adjust`.
+All 14 example scripts ported. `info.py` and `surface.py` verified running
+headless; the windowed examples are ported at the API level (constant renames,
+`CreateRenderer()` + `SetVSync`, per-window text input, `WINDOWEVENT` →
+`EVENT_WINDOW_*` range, `GetJoysticks()` ids, `Gamepad`) but not runtime-checked
+— no display in this environment.
 
-### Phase J — Tests
+### Phase J — Tests — DONE
 
-`conftest.py` (`import SDL3`, module glob, drop `INIT_TIMER`) + all 17
-`test_*.py`. Run the headless suite; triage.
+`conftest.py` imports `SDL3`; all 17 `test_*.py` updated for the SDL3 API and
+behaviour changes. **Headless suite: 192 passed, 5 skipped, 0 failed.** Two
+small C fixes fell out of triage: `PushEvent` returns `False` (not an exception)
+when a filter drops the event, and `Audio.Open()` fills a partial spec with
+`S16 / 2ch / 44100` defaults. `_GEN_EXTRA` gained `INIT_GAMECONTROLLER`,
+`AUDIO_STOPPED/PLAYING/PAUSED`, `TOUCH_MOUSEID` / `MOUSE_TOUCHID`.
 
-### Phase K — Docs & packaging
+### Phase K — Docs & packaging — DONE
 
-`README.rst` (`brew install sdl3 sdl3_image`, distro notes), rewrite the
-`ROADMAP.md` intro + out-of-scope, `setup.py` version, `CLAUDE.md`.
+`README.rst` (`brew install sdl3 sdl3_image`, Trixie+ note), `ROADMAP.md` intro
++ out-of-scope, `CLAUDE.md` (module name, generated `_constants.c`, SDL3 object
+model / audio / bool-idiom notes), `setup.py` version `0.3.0` (Phase A).
 
-## Sequencing notes
+## Outcome
 
-- Phases A–C unblock everything; do them first.
-- D, E, G are large but mechanical once the pattern is set.
-- F (audio) is the highest risk — genuine redesign; decision 3 is the contract.
-- One commit per phase on `feature/sdl3`.
+`feature/sdl3`, one commit per phase (A–K). The `SDL3` extension builds and
+links against SDL3 3.4 / SDL3_image 3.4, and the headless pytest suite is green.
+Windowed example programs are ported but unverified for lack of a display.
+Known follow-ups: run the windowed examples on a real display; the new SDL3
+subsystems (GPU, camera, pen, dialogs, tray) are untouched.
+
+## Sequencing notes (as executed)
+
+- Phases A–C unblocked everything and were done first.
+- D, E, G were large but mechanical once the pattern was set (per-file:
+  rewrite → `cc -fsyntax-only` against SDL3 → next file).
+- F (audio) was the redesign; decision 3 held.
+- The SDL3 `SDL_oldnames.h` compat header gave precise `_renamed_` diagnostics
+  throughout, which made the sweep fast.

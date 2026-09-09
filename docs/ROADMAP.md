@@ -1,7 +1,14 @@
-# SDL2 binding roadmap
+# SDL binding roadmap
 
-A phased plan to take this binding from its current partial coverage to broad
-SDL2 (+ SDL2_image) coverage, keeping the established style: one wrapped type per
+> **Now targeting SDL3.** Phases 0–9 below were completed against SDL2; the
+> port to SDL3 (`SDL3` module, `import SDL3`) is tracked in
+> [`SDL3-MIGRATION.md`](SDL3-MIGRATION.md). This file is kept for the phase
+> history and the style guide, which still applies. Where a phase description
+> names an SDL2 API, its SDL3 equivalent (or its removal) is recorded in the
+> migration doc.
+
+A phased plan that took this binding from partial coverage to broad SDL
+(+ SDL_image) coverage, keeping the established style: one wrapped type per
 `src/pysdl_<Type>.c` file, the `SDL_` prefix dropped from names, errors raised
 through `pysdl_Error`, blocking calls wrapped in `Py_BEGIN_ALLOW_THREADS`.
 
@@ -300,8 +307,17 @@ Tests: `tests/test_rect.py`; example: `example/rects.py`.
 Threads / mutexes / semaphores / condition vars / atomics (use Python's),
 `SDL_Log*`, assertions, `SDL_main` / main callbacks, platform-specific APIs
 (Android / iOS / WinRT), `GetWindowWMInfo`, stdinc shims. Satellite libraries
-(`SDL2_ttf`, `SDL2_mixer`, `SDL2_net`, `SDL2_gfx`) are a separate effort - each
-its own linked lib + `pysdl_ttf.c` etc., or separate packages.
+(`SDL3_ttf`, `SDL3_mixer`, `SDL3_net`) are a separate effort - each its own
+linked lib + `pysdl_ttf.c` etc., or separate packages.
+
+Removed by SDL3 with no in-style replacement (dropped from the binding in the
+SDL3 port): gesture recognition (`MULTIGESTURE` / `DOLLAR*`, `RecordGesture`,
+dollar templates), window gamma ramp / brightness, `Texture.GL_Bind`,
+`GetDisplayDPI`, `IMG_Init` / `IMG_Quit`, `GetRendererInfo` /
+`GetRenderDriverInfo` (now name + properties), `RenderTargetSupported`,
+`SDL_QueryTexture` (now `Texture.Query` over size + properties),
+`RenderSetIntegerScale`, `AudioInit` / `AudioQuit`. The new SDL3 subsystems
+(GPU, camera, pen, async I/O, dialogs, tray) are future work.
 
 ## Per-phase checklist
 
