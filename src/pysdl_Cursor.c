@@ -12,11 +12,11 @@ static PyMethodDef PySDL_Cursor_methods[] = {
 
 PyTypeObject PySDL_Cursor_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Cursor",
+    .tp_name      = "SDL3.Cursor",
     .tp_basicsize = sizeof(PySDL_Cursor),
     .tp_dealloc   = (destructor)PySDL_Cursor_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Cursor(system_cursor_id)",
+    .tp_doc       = "SDL3.Cursor(system_cursor_id)",
     .tp_methods   = PySDL_Cursor_methods,
     .tp_init      = (initproc)PySDL_Cursor_Type_init,
     .tp_new       = PyType_GenericNew

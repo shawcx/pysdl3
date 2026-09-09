@@ -128,14 +128,25 @@ Verified: `_constants.c` compiles clean against the SDL3 headers in isolation
 (the only error in a full `pysdl.h` include is the not-yet-renamed
 `SDL_GameController` struct member — Phase G).
 
-### Phase C — Cross-cutting sweep + `pysdl_util.c`
+### Phase C — Cross-cutting sweep + `pysdl_util.c` — DONE
 
-`SDL_bool` → `bool`, `SDL_TRUE` / `SDL_FALSE` → `true` / `false`,
-`IMG_GetError` → `SDL_GetError`, the local `_raise()` helpers, the error-idiom
-flip (reviewed per call). `PyToPixel` / `MapRGBA` gain the
-`const SDL_PixelFormatDetails *` + `SDL_Palette *` signature. RWops → IOStream in
-`LoadBMP` / `LoadImage` / `LoadWAV`. `tp_name` and error strings `"SDL2."` →
-`"SDL3."`. `GetBasePath` stops freeing its result.
+- Global textual sweep across `src/*.c`: `SDL_bool` → `bool`,
+  `SDL_TRUE` / `SDL_FALSE` → `true` / `false`, `IMG_GetError` → `SDL_GetError`,
+  `tp_name` / `tp_doc` / error strings `"SDL2."` → `"SDL3."`.
+- `pysdl.h` now compiles against SDL3: `PySDL_PixelFormat` holds
+  `{ SDL_PixelFormat format; const SDL_PixelFormatDetails *details;
+  SDL_Palette *palette; }`; `PySDL_GameController` → `PySDL_Gamepad`
+  (`SDL_Gamepad *gamepad`); `PySDL_Audio` gains a device-bound
+  `SDL_AudioStream *stream`; `pysdl_gamecontroller_methods` →
+  `pysdl_gamepad_methods`.
+- `pysdl_util.c`: `PyToPixel` takes
+  `(src, const SDL_PixelFormatDetails *format, const SDL_Palette *palette, out)`
+  and calls the new `SDL_MapRGBA(details, palette, …)`.
+- Verified: `pysdl.h`, `_constants.c`, `pysdl_util.c` all compile clean.
+
+Deferred into their subsystem phases (they need the resignatured calls around
+them): the per-call error-idiom flip, `_raise()` helpers, RWops → IOStream in
+`LoadBMP` / `LoadImage` / `LoadWAV`, `GetBasePath` no longer freeing.
 
 ### Phase D — Graphics core
 

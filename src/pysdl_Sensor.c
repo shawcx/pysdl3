@@ -22,11 +22,11 @@ static PyMethodDef PySDL_Sensor_methods[] = {
 
 PyTypeObject PySDL_Sensor_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Sensor",
+    .tp_name      = "SDL3.Sensor",
     .tp_basicsize = sizeof(PySDL_Sensor),
     .tp_dealloc   = (destructor)PySDL_Sensor_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Sensor(device_index)",
+    .tp_doc       = "SDL3.Sensor(device_index)",
     .tp_methods   = PySDL_Sensor_methods,
     .tp_init      = (initproc)PySDL_Sensor_Type_init,
     .tp_new       = PyType_GenericNew

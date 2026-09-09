@@ -22,11 +22,11 @@ static PyGetSetDef PySDL_Timer_getset[] = {
 
 PyTypeObject PySDL_Timer_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Timer",
+    .tp_name      = "SDL3.Timer",
     .tp_basicsize = sizeof(PySDL_Timer),
     .tp_dealloc   = (destructor)PySDL_Timer_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Timer(interval_ms, callback) - callback(interval) returns the "
+    .tp_doc       = "SDL3.Timer(interval_ms, callback) - callback(interval) returns the "
                     "next interval, or None to repeat, or 0 to stop",
     .tp_methods   = PySDL_Timer_methods,
     .tp_getset    = PySDL_Timer_getset,

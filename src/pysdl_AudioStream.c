@@ -20,11 +20,11 @@ static PyMethodDef PySDL_AudioStream_methods[] = {
 
 PyTypeObject PySDL_AudioStream_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.AudioStream",
+    .tp_name      = "SDL3.AudioStream",
     .tp_basicsize = sizeof(PySDL_AudioStream),
     .tp_dealloc   = (destructor)PySDL_AudioStream_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.AudioStream(src_format, src_channels, src_rate, dst_format, dst_channels, dst_rate)",
+    .tp_doc       = "SDL3.AudioStream(src_format, src_channels, src_rate, dst_format, dst_channels, dst_rate)",
     .tp_methods   = PySDL_AudioStream_methods,
     .tp_init      = (initproc)PySDL_AudioStream_Type_init,
     .tp_new       = PyType_GenericNew

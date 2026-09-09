@@ -105,11 +105,11 @@ static PyMethodDef PySDL_Renderer_methods[] = {
 
 PyTypeObject PySDL_Renderer_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Renderer",
+    .tp_name      = "SDL3.Renderer",
     .tp_basicsize = sizeof(PySDL_Renderer),
     .tp_dealloc   = (destructor)PySDL_Renderer_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Renderer(window, index=-1, flags=0)",
+    .tp_doc       = "SDL3.Renderer(window, index=-1, flags=0)",
     .tp_methods   = PySDL_Renderer_methods,
     .tp_init      = (initproc)PySDL_Renderer_Type_init,
     .tp_new       = PyType_GenericNew,
@@ -254,7 +254,7 @@ static PyObject * PySDL_Renderer_LoadTexture(PySDL_Renderer *self, PyObject *arg
 
     if(NULL == pysdl_Texture->texture) {
         Py_DECREF(pysdl_Texture);
-        PyErr_SetString(pysdl_Error, IMG_GetError());
+        PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
 
@@ -796,7 +796,7 @@ static PyObject * PySDL_Renderer_SetIntegerScale(PySDL_Renderer *self, PyObject 
     if(-1 == enable) {
         return NULL;
     }
-    if(0 > SDL_RenderSetIntegerScale(self->renderer, enable ? SDL_TRUE : SDL_FALSE)) {
+    if(0 > SDL_RenderSetIntegerScale(self->renderer, enable ? true : false)) {
         return _raise();
     }
     Py_RETURN_NONE;

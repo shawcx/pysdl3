@@ -147,11 +147,11 @@ static PyMethodDef PySDL_Window_methods[] = {
 
 PyTypeObject PySDL_Window_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Window",
+    .tp_name      = "SDL3.Window",
     .tp_basicsize = sizeof(PySDL_Window),
     .tp_dealloc   = (destructor)PySDL_Window_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Window(title,(width,height),(x,y),flags)",
+    .tp_doc       = "SDL3.Window(title,(width,height),(x,y),flags)",
     .tp_methods   = PySDL_Window_methods,
     .tp_init      = (initproc)PySDL_Window_Type_init,
     .tp_new       = PyType_GenericNew,
@@ -468,7 +468,7 @@ static PyObject * PySDL_Window_SetWindowBordered(PySDL_Window *self, PyObject *a
     if(-1 == on) {
         return NULL;
     }
-    SDL_SetWindowBordered(self->window, on ? SDL_TRUE : SDL_FALSE);
+    SDL_SetWindowBordered(self->window, on ? true : false);
     Py_RETURN_NONE;
 }
 
@@ -495,7 +495,7 @@ static PyObject * PySDL_Window_SetWindowGrab(PySDL_Window *self, PyObject *arg) 
     if(-1 == on) {
         return NULL;
     }
-    SDL_SetWindowGrab(self->window, on ? SDL_TRUE : SDL_FALSE);
+    SDL_SetWindowGrab(self->window, on ? true : false);
     Py_RETURN_NONE;
 }
 
@@ -646,7 +646,7 @@ static PyObject * PySDL_Window_SetWindowAlwaysOnTop(PySDL_Window *self, PyObject
     if(-1 == on) {
         return NULL;
     }
-    SDL_SetWindowAlwaysOnTop(self->window, on ? SDL_TRUE : SDL_FALSE);
+    SDL_SetWindowAlwaysOnTop(self->window, on ? true : false);
     Py_RETURN_NONE;
 }
 
@@ -655,7 +655,7 @@ static PyObject * PySDL_Window_SetWindowKeyboardGrab(PySDL_Window *self, PyObjec
     if(-1 == on) {
         return NULL;
     }
-    SDL_SetWindowKeyboardGrab(self->window, on ? SDL_TRUE : SDL_FALSE);
+    SDL_SetWindowKeyboardGrab(self->window, on ? true : false);
     Py_RETURN_NONE;
 }
 
@@ -668,7 +668,7 @@ static PyObject * PySDL_Window_SetWindowMouseGrab(PySDL_Window *self, PyObject *
     if(-1 == on) {
         return NULL;
     }
-    SDL_SetWindowMouseGrab(self->window, on ? SDL_TRUE : SDL_FALSE);
+    SDL_SetWindowMouseGrab(self->window, on ? true : false);
     Py_RETURN_NONE;
 }
 
@@ -730,7 +730,7 @@ static PyObject * PySDL_Window_Vulkan_CreateSurface(PySDL_Window *self, PyObject
         return NULL;
     }
     VkSurfaceKHR surface = 0;
-    if(SDL_FALSE == SDL_Vulkan_CreateSurface(self->window,
+    if(false == SDL_Vulkan_CreateSurface(self->window,
         (VkInstance)(uintptr_t)instance_handle, &surface)) {
         return _wraise();
     }

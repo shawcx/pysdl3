@@ -40,11 +40,11 @@ static PyMethodDef PySDL_GameController_methods[] = {
 
 PyTypeObject PySDL_GameController_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.GameController",
+    .tp_name      = "SDL3.GameController",
     .tp_basicsize = sizeof(PySDL_GameController),
     .tp_dealloc   = (destructor)PySDL_GameController_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.GameController(device_index)",
+    .tp_doc       = "SDL3.GameController(device_index)",
     .tp_methods   = PySDL_GameController_methods,
     .tp_init      = (initproc)PySDL_GameController_Type_init,
     .tp_new       = PyType_GenericNew

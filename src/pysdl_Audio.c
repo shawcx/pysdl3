@@ -33,11 +33,11 @@ static PyMethodDef PySDL_Audio_methods[] = {
 
 PyTypeObject PySDL_Audio_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Audio",
+    .tp_name      = "SDL3.Audio",
     .tp_basicsize = sizeof(PySDL_Audio),
     .tp_dealloc   = (destructor)PySDL_Audio_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Audio Class",
+    .tp_doc       = "SDL3.Audio Class",
     .tp_methods   = PySDL_Audio_methods,
     .tp_init      = (initproc)PySDL_Audio_Type_init,
     .tp_new       = PyType_GenericNew

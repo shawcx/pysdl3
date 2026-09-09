@@ -54,11 +54,11 @@ static PyMethodDef PySDL_Haptic_methods[] = {
 
 PyTypeObject PySDL_Haptic_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Haptic",
+    .tp_name      = "SDL3.Haptic",
     .tp_basicsize = sizeof(PySDL_Haptic),
     .tp_dealloc   = (destructor)PySDL_Haptic_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Haptic(device_index)",
+    .tp_doc       = "SDL3.Haptic(device_index)",
     .tp_methods   = PySDL_Haptic_methods,
     .tp_init      = (initproc)PySDL_Haptic_Type_init,
     .tp_new       = PyType_GenericNew
@@ -204,7 +204,7 @@ static PyObject * PySDL_Haptic_NumEffectsPlaying(PySDL_Haptic *self, PyObject *i
 
 static PyObject * PySDL_Haptic_RumbleSupported(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
-    return h ? PyBool_FromLong(SDL_HapticRumbleSupported(h) == SDL_TRUE) : NULL;
+    return h ? PyBool_FromLong(SDL_HapticRumbleSupported(h) == true) : NULL;
 }
 
 static PyObject * PySDL_Haptic_RumbleInit(PySDL_Haptic *self, PyObject *ign) {
@@ -276,7 +276,7 @@ static PyObject * PySDL_Haptic_EffectSupported(PySDL_Haptic *self, PyObject *arg
     if(!_dict_to_effect(arg, &effect)) return NULL;
     int rc = SDL_HapticEffectSupported(h, &effect);
     if(0 > rc) return _raise();
-    return PyBool_FromLong(rc == SDL_TRUE);
+    return PyBool_FromLong(rc == true);
 }
 
 static PyObject * PySDL_Haptic_NewEffect(PySDL_Haptic *self, PyObject *arg) {
@@ -365,7 +365,7 @@ static PyObject * PySDL_HapticName(PyObject *self, PyObject *arg) {
 }
 
 static PyObject * PySDL_MouseIsHaptic(PyObject *self, PyObject *ign) {
-    return PyBool_FromLong(SDL_MouseIsHaptic() == SDL_TRUE);
+    return PyBool_FromLong(SDL_MouseIsHaptic() == true);
 }
 
 static PyObject * PySDL_HapticOpenFromMouse(PyObject *self, PyObject *ign) {
@@ -384,7 +384,7 @@ static PyObject * PySDL_JoystickIsHaptic(PyObject *self, PyObject *arg) {
         PyErr_SetString(PyExc_TypeError, "expected an SDL2.Joystick");
         return NULL;
     }
-    return PyBool_FromLong(SDL_JoystickIsHaptic(((PySDL_Joystick *)arg)->joystick) == SDL_TRUE);
+    return PyBool_FromLong(SDL_JoystickIsHaptic(((PySDL_Joystick *)arg)->joystick) == true);
 }
 
 static PyObject * PySDL_HapticOpenFromJoystick(PyObject *self, PyObject *arg) {

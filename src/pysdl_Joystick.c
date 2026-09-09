@@ -60,11 +60,11 @@ static PyMethodDef PySDL_Joystick_methods[] = {
 
 PyTypeObject PySDL_Joystick_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Joystick",
+    .tp_name      = "SDL3.Joystick",
     .tp_basicsize = sizeof(PySDL_Joystick),
     .tp_dealloc   = (destructor)PySDL_Joystick_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Joystick(device_index)",
+    .tp_doc       = "SDL3.Joystick(device_index)",
     .tp_methods   = PySDL_Joystick_methods,
     .tp_init      = (initproc)PySDL_Joystick_Type_init,
     .tp_new       = PyType_GenericNew

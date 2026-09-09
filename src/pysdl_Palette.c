@@ -36,11 +36,11 @@ static PyGetSetDef PySDL_Palette_getset[] = {
 
 PyTypeObject PySDL_Palette_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Palette",
+    .tp_name      = "SDL3.Palette",
     .tp_basicsize = sizeof(PySDL_Palette),
     .tp_dealloc   = (destructor)PySDL_Palette_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Palette(ncolors)",
+    .tp_doc       = "SDL3.Palette(ncolors)",
     .tp_methods   = PySDL_Palette_methods,
     .tp_getset    = PySDL_Palette_getset,
     .tp_init      = (initproc)PySDL_Palette_Type_init,

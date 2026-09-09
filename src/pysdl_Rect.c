@@ -24,7 +24,7 @@ static PyObject * PySDL_IntersectRect(PyObject *self, PyObject *args) {
         || !PyToRect(a_py, &a) || !PyToRect(b_py, &b)) {
         return NULL;
     }
-    if(SDL_FALSE == SDL_IntersectRect(&a, &b, &result)) {
+    if(false == SDL_IntersectRect(&a, &b, &result)) {
         Py_RETURN_NONE;
     }
     return RectToPy(&result);
@@ -77,9 +77,9 @@ static PyObject * PySDL_EnclosePoints(PyObject *self, PyObject *args) {
     Py_DECREF(fast);
 
     SDL_Rect result;
-    SDL_bool ok = SDL_EnclosePoints(points, (int)n, clipp, &result);
+    bool ok = SDL_EnclosePoints(points, (int)n, clipp, &result);
     PyMem_Free(points);
-    if(SDL_FALSE == ok) {
+    if(false == ok) {
         Py_RETURN_NONE;
     }
     return RectToPy(&result);
@@ -94,7 +94,7 @@ static PyObject * PySDL_IntersectRectAndLine(PyObject *self, PyObject *args) {
         || !PyArg_ParseTuple(line_py, "iiii", &x1, &y1, &x2, &y2)) {
         return NULL;
     }
-    if(SDL_FALSE == SDL_IntersectRectAndLine(&rect, &x1, &y1, &x2, &y2)) {
+    if(false == SDL_IntersectRectAndLine(&rect, &x1, &y1, &x2, &y2)) {
         Py_RETURN_NONE;
     }
     return Py_BuildValue("(iiii)", x1, y1, x2, y2);
@@ -155,7 +155,7 @@ static PyObject * PySDL_IntersectFRect(PyObject *self, PyObject *args) {
         || !PyToFRect(a_py, &a) || !PyToFRect(b_py, &b)) {
         return NULL;
     }
-    if(SDL_FALSE == SDL_IntersectFRect(&a, &b, &result)) {
+    if(false == SDL_IntersectFRect(&a, &b, &result)) {
         Py_RETURN_NONE;
     }
     return _frect_to_py(&result);

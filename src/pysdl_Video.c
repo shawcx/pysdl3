@@ -258,7 +258,7 @@ static PyObject * PySDL_GetHintBoolean(PyObject *self, PyObject *args) {
     if(!PyArg_ParseTuple(args, "s|p", &name, &default_value)) {
         return NULL;
     }
-    return PyBool_FromLong(SDL_GetHintBoolean(name, default_value ? SDL_TRUE : SDL_FALSE));
+    return PyBool_FromLong(SDL_GetHintBoolean(name, default_value ? true : false));
 }
 
 #if SDL_VERSION_ATLEAST(2,24,0)
@@ -413,7 +413,7 @@ static PyObject * PySDL_Vulkan_GetInstanceExtensions(PyObject *self, PyObject *a
     }
 
     unsigned int count = 0;
-    if(SDL_FALSE == SDL_Vulkan_GetInstanceExtensions(window, &count, NULL)) {
+    if(false == SDL_Vulkan_GetInstanceExtensions(window, &count, NULL)) {
         return _raise();
     }
 
@@ -421,7 +421,7 @@ static PyObject * PySDL_Vulkan_GetInstanceExtensions(PyObject *self, PyObject *a
     if(NULL == names) {
         return PyErr_NoMemory();
     }
-    if(SDL_FALSE == SDL_Vulkan_GetInstanceExtensions(window, &count, names)) {
+    if(false == SDL_Vulkan_GetInstanceExtensions(window, &count, names)) {
         PyMem_Free(names);
         return _raise();
     }

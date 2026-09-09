@@ -446,7 +446,7 @@ static PyObject * _load_surface(PyObject *arg, int is_image) {
 
     if(NULL == wrapper->surface) {
         Py_DECREF(wrapper);
-        PyErr_SetString(pysdl_Error, is_image ? IMG_GetError() : SDL_GetError());
+        PyErr_SetString(pysdl_Error, is_image ? SDL_GetError() : SDL_GetError());
         return NULL;
     }
 
@@ -623,7 +623,7 @@ static PyObject * PySDL_PixelFormatEnumToMasks(PyObject *self, PyObject *arg) {
 
     int bpp = 0;
     Uint32 rmask, gmask, bmask, amask;
-    if(SDL_FALSE == SDL_PixelFormatEnumToMasks((Uint32)format, &bpp, &rmask, &gmask, &bmask, &amask)) {
+    if(false == SDL_PixelFormatEnumToMasks((Uint32)format, &bpp, &rmask, &gmask, &bmask, &amask)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
@@ -646,7 +646,7 @@ static PyObject * PySDL_IMG_Init(PyObject *self, PyObject *args) {
     }
     int got = IMG_Init(flags);
     if(flags && (got & flags) != flags) {
-        PyErr_SetString(pysdl_Error, IMG_GetError());
+        PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
     return PyLong_FromLong(got);
@@ -914,8 +914,8 @@ static PyObject * PySDL_GL_ExtensionSupported(PyObject *self, PyObject *arg) {
         return NULL;
     }
 
-    SDL_bool isSupported = SDL_GL_ExtensionSupported(extension);
-    if(isSupported == SDL_TRUE) {
+    bool isSupported = SDL_GL_ExtensionSupported(extension);
+    if(isSupported == true) {
         Py_RETURN_TRUE;
     } else {
         Py_RETURN_FALSE;

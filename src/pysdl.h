@@ -53,7 +53,9 @@ extern PyTypeObject PySDL_Texture_Type;
 
 typedef struct {
     PyObject_HEAD
-    SDL_PixelFormat *format;
+    SDL_PixelFormat format;                 // the enum; SDL_PIXELFORMAT_UNKNOWN if uninitialised
+    const SDL_PixelFormatDetails *details;  // cached by SDL, never freed
+    SDL_Palette *palette;                   // owned (SetPalette), or NULL
 } PySDL_PixelFormat;
 extern PyTypeObject PySDL_PixelFormat_Type;
 
@@ -66,7 +68,8 @@ extern PyTypeObject PySDL_Palette_Type;
 typedef struct {
     PyObject_HEAD
     SDL_AudioDeviceID deviceId;
-    PyObject *pycallback;  // (callback, userdata) tuple passed to SDL_OpenAudioDevice
+    SDL_AudioStream *stream;  // device-bound stream (SDL_OpenAudioDeviceStream), or NULL
+    PyObject *pycallback;     // (callback, userdata) tuple, or NULL
 } PySDL_Audio;
 extern PyTypeObject PySDL_Audio_Type;
 
@@ -80,15 +83,15 @@ extern PyTypeObject PySDL_Cursor_Type;
 typedef struct {
     PyObject_HEAD
     SDL_Joystick *joystick;
-    int shouldFree;  // 0 when borrowed (GameController.GetJoystick)
+    int shouldFree;  // 0 when borrowed (Gamepad.GetJoystick)
 } PySDL_Joystick;
 extern PyTypeObject PySDL_Joystick_Type;
 
 typedef struct {
     PyObject_HEAD
-    SDL_GameController *controller;
-} PySDL_GameController;
-extern PyTypeObject PySDL_GameController_Type;
+    SDL_Gamepad *gamepad;
+} PySDL_Gamepad;
+extern PyTypeObject PySDL_Gamepad_Type;
 
 typedef struct {
     PyObject_HEAD
@@ -115,7 +118,7 @@ typedef struct {
 } PySDL_AudioStream;
 extern PyTypeObject PySDL_AudioStream_Type;
 
-// massive list of SDL2 constants
+// generated constant table (tools/gen_constants.py --generate)
 void _constants(PyObject *module);
 
 // Extra module-function tables registered from their own files.
@@ -123,7 +126,7 @@ extern PyMethodDef pysdl_events_methods[];          // pysdl_events.c  (event qu
 extern PyMethodDef pysdl_input_methods[];           // pysdl_input.c   (keyboard / mouse / touch / text)
 extern PyMethodDef pysdl_cursor_methods[];          // pysdl_Cursor.c
 extern PyMethodDef pysdl_joystick_methods[];        // pysdl_Joystick.c
-extern PyMethodDef pysdl_gamecontroller_methods[];  // pysdl_GameController.c
+extern PyMethodDef pysdl_gamepad_methods[];         // pysdl_Gamepad.c
 extern PyMethodDef pysdl_haptic_methods[];          // pysdl_Haptic.c
 extern PyMethodDef pysdl_sensor_methods[];          // pysdl_Sensor.c
 extern PyMethodDef pysdl_video_methods[];           // pysdl_video.c   (display / messagebox / hints / vulkan / metal)
@@ -153,13 +156,14 @@ int PyToFRect(PyObject *src, SDL_FRect *dst);   // 2 items -> w/h = -1, or 4 ite
 int PyToFPoint(PyObject *src, SDL_FPoint *dst); // 2 items
 
 // A pixel value: an int is taken verbatim, a 3/4-item sequence is mapped
-// through `format`.
-int PyToPixel(PyObject *src, const SDL_PixelFormat *format, Uint32 *out);
+// through `format` (+ `palette`, which may be NULL).
+int PyToPixel(PyObject *src, const SDL_PixelFormatDetails *format,
+              const SDL_Palette *palette, Uint32 *out);
 
 PyObject * RectToPy(const SDL_Rect *rect);      // -> (x, y, w, h)
 PyObject * PointToPy(const SDL_Point *point);   // -> (x, y)
 
-// Wrap a window SDL still owns as a non-freeing SDL2.Window, or None for NULL.
+// Wrap a window SDL still owns as a non-freeing SDL3.Window, or None for NULL.
 PyObject * PySDL_WrapWindow(SDL_Window *window);
 
 #endif // __PYSDL_H__

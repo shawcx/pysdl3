@@ -66,11 +66,11 @@ static PyGetSetDef PySDL_PixelFormat_getset[] = {
 
 PyTypeObject PySDL_PixelFormat_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.PixelFormat",
+    .tp_name      = "SDL3.PixelFormat",
     .tp_basicsize = sizeof(PySDL_PixelFormat),
     .tp_dealloc   = (destructor)PySDL_PixelFormat_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.PixelFormat(format_enum)",
+    .tp_doc       = "SDL3.PixelFormat(format_enum)",
     .tp_methods   = PySDL_PixelFormat_methods,
     .tp_getset    = PySDL_PixelFormat_getset,
     .tp_init      = (initproc)PySDL_PixelFormat_Type_init,

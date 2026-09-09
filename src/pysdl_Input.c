@@ -186,7 +186,7 @@ static PyObject * PySDL_SetRelativeMouseMode(PyObject *self, PyObject *arg) {
     if(-1 == enable) {
         return NULL;
     }
-    if(0 > SDL_SetRelativeMouseMode(enable ? SDL_TRUE : SDL_FALSE)) {
+    if(0 > SDL_SetRelativeMouseMode(enable ? true : false)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
@@ -202,7 +202,7 @@ static PyObject * PySDL_CaptureMouse(PyObject *self, PyObject *arg) {
     if(-1 == enable) {
         return NULL;
     }
-    if(0 > SDL_CaptureMouse(enable ? SDL_TRUE : SDL_FALSE)) {
+    if(0 > SDL_CaptureMouse(enable ? true : false)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }

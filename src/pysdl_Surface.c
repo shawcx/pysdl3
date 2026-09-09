@@ -92,11 +92,11 @@ static PyGetSetDef PySDL_Surface_getset[] = {
 
 PyTypeObject PySDL_Surface_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name      = "SDL2.Surface",
+    .tp_name      = "SDL3.Surface",
     .tp_basicsize = sizeof(PySDL_Surface),
     .tp_dealloc   = (destructor)PySDL_Surface_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL2.Surface Class",
+    .tp_doc       = "SDL3.Surface Class",
     .tp_methods   = PySDL_Surface_methods,
     .tp_getset    = PySDL_Surface_getset,
     .tp_init      = (initproc)PySDL_Surface_Type_init,
@@ -220,7 +220,7 @@ static PyObject * PySDL_Surface_SavePNG(PySDL_Surface *self, PyObject *arg) {
         return NULL;
     }
     if(0 > IMG_SavePNG(self->surface, path)) {
-        PyErr_SetString(pysdl_Error, IMG_GetError());
+        PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
     Py_RETURN_NONE;
@@ -235,7 +235,7 @@ static PyObject * PySDL_Surface_SaveJPG(PySDL_Surface *self, PyObject *args, PyO
         return NULL;
     }
     if(0 > IMG_SaveJPG(self->surface, path, quality)) {
-        PyErr_SetString(pysdl_Error, IMG_GetError());
+        PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
     Py_RETURN_NONE;
@@ -434,7 +434,7 @@ static PyObject * PySDL_Surface_SetColorKey(PySDL_Surface *self, PyObject *args,
     if(!PyToPixel(key_py, self->surface->format, &key)) {
         return NULL;
     }
-    if(0 > SDL_SetColorKey(self->surface, enable ? SDL_TRUE : SDL_FALSE, key)) {
+    if(0 > SDL_SetColorKey(self->surface, enable ? true : false, key)) {
         return _raise();
     }
     Py_RETURN_NONE;
