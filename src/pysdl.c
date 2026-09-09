@@ -200,13 +200,13 @@ static PyMethodDef pysdl_PyMethodDefs[] = {
 
 static PyModuleDef pysdl_module = {
     PyModuleDef_HEAD_INIT,
-    "SDL2",
+    "SDL3",
     NULL,
     -1,
     pysdl_PyMethodDefs
 };
 
-PyMODINIT_FUNC PyInit_SDL2(void) {
+PyMODINIT_FUNC PyInit_SDL3(void) {
     PyObject *module;
 
     module = PyModule_Create(&pysdl_module);
@@ -214,7 +214,7 @@ PyMODINIT_FUNC PyInit_SDL2(void) {
         return NULL;
     }
 
-    pysdl_Error = PyErr_NewException("SDL2.error", NULL, NULL);
+    pysdl_Error = PyErr_NewException("SDL3.error", NULL, NULL);
     Py_INCREF(pysdl_Error);
     PyModule_AddObject(module, "error", pysdl_Error);
 

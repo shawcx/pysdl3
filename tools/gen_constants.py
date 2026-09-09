@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-'''Report SDL2 constants that the binding does not expose yet.
+'''Report SDL3 constants that the binding does not expose yet.
 
-Scans the installed SDL2 headers for enum members and simple integer #defines
-(names SDL_*, SDLK_*, KMOD_*, AUDIO_*) and compares them with the symbols
-src/_constants.c already registers. Use it when wiring up a new subsystem to see
-what is still missing.
+Scans the installed SDL3 headers for enum members and simple integer #defines
+(names SDL_*, SDLK_*) and compares them with the symbols src/_constants.c already
+registers. Use it when wiring up a new subsystem to see what is still missing.
 
     tools/gen_constants.py                  # missing symbols grouped by header
     tools/gen_constants.py --emit SCANCODE  # PyModule_AddIntConstant lines to paste
+
+SDL3 ships no sdl3-config script; this probes `pkg-config sdl3` (seeding
+PKG_CONFIG_PATH with the Homebrew keg dirs) and falls back to the usual prefixes.
 
 The --emit output still needs a human to drop it into _constants.c (usually
 inside a new section, sometimes guarded with #ifdef for portability).
@@ -24,12 +26,12 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CONSTANTS_C = os.path.join(_HERE, '..', 'src', '_constants.c')
 
-_NAME = r'(SDL_[A-Z0-9_]+|SDLK_[A-Z0-9_]+|KMOD_[A-Z0-9_]+|AUDIO_[A-Z0-9_]+)'
+_NAME = r'(SDL_[A-Z0-9_]+|SDLK_[A-Z0-9_]+)'
 _DEFINE_RE = re.compile(r'^\s*#\s*define\s+' + _NAME + r'\s+(.+?)\s*$')
 _ENUM_MEMBER_RE = re.compile(r'\b' + _NAME + r'\b')
 _REGISTERED_RE = re.compile(r'PyModule_AddIntConstant\s*\(\s*module\s*,\s*"[^"]+"\s*,\s*([A-Za-z0-9_]+)\s*\)')
 _NUMERIC_BODY_RE = re.compile(r"^[0-9a-fA-FxXuUlL'\"\s()|+\-<>*/~.,]*$")
-_REF_BODY_RE = re.compile(r'\b(SDL_|SDLK_|KMOD_|AUDIO_)[A-Z0-9_]+\b')
+_REF_BODY_RE = re.compile(r'\b(SDL_|SDLK_)[A-Z0-9_]+\b')
 
 # Compiler / build plumbing - never real runtime constants.
 _SKIP_HEADERS = {
@@ -39,21 +41,35 @@ _SKIP_HEADERS = {
 }
 
 
+_BREW_PKGCONFIG = [
+    '/opt/homebrew/opt/sdl3/lib/pkgconfig',
+    '/opt/homebrew/lib/pkgconfig',
+    '/usr/local/opt/sdl3/lib/pkgconfig',
+    '/usr/local/lib/pkgconfig',
+]
+
+
 def sdl_include_dir():
-    for cmd in (['sdl2-config', '--cflags'], ['pkg-config', '--cflags', 'sdl2']):
-        try:
-            out = subprocess.check_output(cmd, text=True)
-        except (OSError, subprocess.CalledProcessError):
-            continue
-        for token in shlex.split(out):
-            if token.startswith('-I') and os.path.isdir(os.path.join(token[2:], 'SDL2')):
-                return os.path.join(token[2:], 'SDL2')
-            if token.startswith('-I') and os.path.isfile(os.path.join(token[2:], 'SDL.h')):
-                return token[2:]
-    for guess in ('/opt/homebrew/include/SDL2', '/usr/local/include/SDL2', '/usr/include/SDL2'):
+    env = dict(os.environ)
+    existing = env.get('PKG_CONFIG_PATH', '')
+    env['PKG_CONFIG_PATH'] = os.pathsep.join(
+        [p for p in _BREW_PKGCONFIG if os.path.isdir(p)] +
+        ([existing] if existing else []))
+
+    try:
+        out = subprocess.check_output(['pkg-config', '--cflags', 'sdl3'],
+                                      text=True, env=env)
+    except (OSError, subprocess.CalledProcessError):
+        out = ''
+    for token in shlex.split(out):
+        if token.startswith('-I') and os.path.isdir(os.path.join(token[2:], 'SDL3')):
+            return os.path.join(token[2:], 'SDL3')
+        if token.startswith('-I') and os.path.isfile(os.path.join(token[2:], 'SDL.h')):
+            return token[2:]
+    for guess in ('/opt/homebrew/include/SDL3', '/usr/local/include/SDL3', '/usr/include/SDL3'):
         if os.path.isfile(os.path.join(guess, 'SDL.h')):
             return guess
-    sys.exit('could not locate the SDL2 headers (install sdl2-config or pkg-config)')
+    sys.exit('could not locate the SDL3 headers (install pkg-config, or brew install sdl3)')
 
 
 def header_symbols(include_dir):
