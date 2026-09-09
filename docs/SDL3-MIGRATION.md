@@ -216,7 +216,22 @@ Original plan:
   `SDL_Vulkan_GetInstanceExtensions(&count)` loses the window arg;
   `SDL_Vulkan_CreateSurface` gains an allocator arg.
 
-### Phase E — Events & input
+### Phase E — Events & input — DONE
+
+`_event()` rewritten to SDL3 event names / fields (keysym flattened, float
+mouse coords, `WINDOWEVENT` and `DISPLAYEVENT` handled as per-type ranges,
+`caxis`/`cbutton`/`cdevice` -> `gaxis`/`gbutton`/`gdevice`, `adevice.recording`,
+drop `drop.data` no longer freed, gesture cases deleted); `_event` lost its
+`consume` arg. Queue calls use `bool` returns; `EventState` -> `SDL_SetEventEnabled`
+/ `SDL_EventEnabled` (+ `SetEventEnabled`/`EventEnabled` aliases); `QuitRequested`
+reimplemented via `SDL_PeepEvents`; the event-filter callbacks return `bool`.
+Input: `SDL_GetKeyboardState` -> `const bool *`; float mouse coords;
+`StartTextInput` / `StopTextInput` / `IsTextInputActive` / `SetTextInputArea` and
+`SetRelativeMouseMode` / `GetRelativeMouseMode` take a `Window`; touch
+enumeration via `SDL_GetTouchDevices` / `SDL_GetTouchFingers`; `RecordGesture` +
+dollar-template functions deleted (removing the last RWops uses).
+
+Original plan:
 
 Rewrite `_event()`: type constants renamed; `keysym.sym` / `scancode` / `mod` →
 `key` / `scancode` / `mod`, `.state` → `.down`; `SDL_WINDOWEVENT` → per-type

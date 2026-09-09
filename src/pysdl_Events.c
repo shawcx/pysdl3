@@ -2,134 +2,114 @@
 
 // The event queue: the `_event()` converter (SDL_Event -> (type, data)), the
 // pump/poll/wait/peep/push functions, and an optional Python event filter.
-// Registered in PyInit_SDL2 via PyModule_AddFunctions(module, pysdl_events_methods).
+// Registered in PyInit_SDL3 via PyModule_AddFunctions(module, pysdl_events_methods).
 
 //=========================================================
 // SDL_Event -> (type, data)
 //=========================================================
 
-// `consume` frees the drop.file string SDL handed us; it must be 0 when the
-// event still belongs to SDL (event filter, SDL_PEEKEVENT).
-static PyObject * _event(SDL_Event *event, int consume) {
+static PyObject * _event(SDL_Event *event) {
     PyObject *data;
 
     switch(event->type) {
-    case SDL_KEYDOWN:
-    case SDL_KEYUP: {
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP: {
             SDL_KeyboardEvent *e = &event->key;
-            data = Py_BuildValue("(iiiiO)", e->state, e->keysym.scancode,
-                e->keysym.sym, e->keysym.mod, e->repeat ? Py_True : Py_False);
+            data = Py_BuildValue("(iiiiO)", e->down, e->scancode,
+                e->key, e->mod, e->repeat ? Py_True : Py_False);
         }
         break;
-    case SDL_TEXTINPUT:
-        data = PyUnicode_FromString(event->text.text);
+    case SDL_EVENT_TEXT_INPUT:
+        data = PyUnicode_FromString(event->text.text ? event->text.text : "");
         break;
-    case SDL_TEXTEDITING:
-        data = Py_BuildValue("(sii)", event->edit.text, event->edit.start, event->edit.length);
+    case SDL_EVENT_TEXT_EDITING:
+        data = Py_BuildValue("(sii)", event->edit.text ? event->edit.text : "",
+            event->edit.start, event->edit.length);
         break;
-    case SDL_MOUSEMOTION: {
+    case SDL_EVENT_MOUSE_MOTION: {
             SDL_MouseMotionEvent *e = &event->motion;
-            data = Py_BuildValue("(iiiii)", e->state, e->x, e->y, e->xrel, e->yrel);
+            data = Py_BuildValue("(Iffff)", e->state, e->x, e->y, e->xrel, e->yrel);
         }
         break;
-    case SDL_MOUSEBUTTONDOWN:
-    case SDL_MOUSEBUTTONUP: {
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP: {
             SDL_MouseButtonEvent *e = &event->button;
-            data = Py_BuildValue("(iiiii)", e->which, e->button, e->state, e->x, e->y);
+            data = Py_BuildValue("(iiiff)", e->which, e->button, e->down, e->x, e->y);
         }
         break;
-    case SDL_MOUSEWHEEL: {
+    case SDL_EVENT_MOUSE_WHEEL: {
             SDL_MouseWheelEvent *e = &event->wheel;
-            data = Py_BuildValue("(iiii)", e->which, e->x, e->y, e->direction);
+            data = Py_BuildValue("(iffi)", e->which, e->x, e->y, e->direction);
         }
         break;
-    case SDL_JOYAXISMOTION:
+    case SDL_EVENT_JOYSTICK_AXIS_MOTION:
         data = Py_BuildValue("(iii)", event->jaxis.which, event->jaxis.axis, event->jaxis.value);
         break;
-    case SDL_JOYBALLMOTION:
+    case SDL_EVENT_JOYSTICK_BALL_MOTION:
         data = Py_BuildValue("(iiii)", event->jball.which, event->jball.ball,
             event->jball.xrel, event->jball.yrel);
         break;
-    case SDL_JOYHATMOTION:
+    case SDL_EVENT_JOYSTICK_HAT_MOTION:
         data = Py_BuildValue("(iii)", event->jhat.which, event->jhat.hat, event->jhat.value);
         break;
-    case SDL_JOYBUTTONDOWN:
-    case SDL_JOYBUTTONUP:
-        data = Py_BuildValue("(iii)", event->jbutton.which, event->jbutton.button, event->jbutton.state);
+    case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+    case SDL_EVENT_JOYSTICK_BUTTON_UP:
+        data = Py_BuildValue("(iii)", event->jbutton.which, event->jbutton.button, event->jbutton.down);
         break;
-    case SDL_JOYDEVICEADDED:
-    case SDL_JOYDEVICEREMOVED:
+    case SDL_EVENT_JOYSTICK_ADDED:
+    case SDL_EVENT_JOYSTICK_REMOVED:
         data = Py_BuildValue("(i)", event->jdevice.which);
         break;
-    case SDL_CONTROLLERAXISMOTION:
-        data = Py_BuildValue("(iii)", event->caxis.which, event->caxis.axis, event->caxis.value);
+    case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+        data = Py_BuildValue("(iii)", event->gaxis.which, event->gaxis.axis, event->gaxis.value);
         break;
-    case SDL_CONTROLLERBUTTONDOWN:
-    case SDL_CONTROLLERBUTTONUP:
-        data = Py_BuildValue("(iii)", event->cbutton.which, event->cbutton.button, event->cbutton.state);
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+    case SDL_EVENT_GAMEPAD_BUTTON_UP:
+        data = Py_BuildValue("(iii)", event->gbutton.which, event->gbutton.button, event->gbutton.down);
         break;
-    case SDL_CONTROLLERDEVICEADDED:
-    case SDL_CONTROLLERDEVICEREMOVED:
-    case SDL_CONTROLLERDEVICEREMAPPED:
-        data = Py_BuildValue("(i)", event->cdevice.which);
+    case SDL_EVENT_GAMEPAD_ADDED:
+    case SDL_EVENT_GAMEPAD_REMOVED:
+    case SDL_EVENT_GAMEPAD_REMAPPED:
+        data = Py_BuildValue("(i)", event->gdevice.which);
         break;
-    case SDL_WINDOWEVENT:
-        data = Py_BuildValue("(iiiI)", event->window.event, event->window.data1,
-            event->window.data2, event->window.windowID);
-        break;
-#if SDL_VERSION_ATLEAST(2,0,9)
-    case SDL_DISPLAYEVENT:
-        data = Py_BuildValue("(iiI)", event->display.event, event->display.data1, event->display.display);
-        break;
-    case SDL_SENSORUPDATE: {
+    case SDL_EVENT_SENSOR_UPDATE: {
             const float *v = event->sensor.data;
             data = Py_BuildValue("(i(ffffff))", event->sensor.which,
                 v[0], v[1], v[2], v[3], v[4], v[5]);
         }
         break;
-#endif
-    case SDL_AUDIODEVICEADDED:
-    case SDL_AUDIODEVICEREMOVED:
-        data = Py_BuildValue("(Ii)", event->adevice.which, event->adevice.iscapture);
+    case SDL_EVENT_AUDIO_DEVICE_ADDED:
+    case SDL_EVENT_AUDIO_DEVICE_REMOVED:
+        data = Py_BuildValue("(Ii)", event->adevice.which, event->adevice.recording);
         break;
-    case SDL_FINGERMOTION:
-    case SDL_FINGERDOWN:
-    case SDL_FINGERUP: {
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP: {
             SDL_TouchFingerEvent *e = &event->tfinger;
-            data = Py_BuildValue("(LLfffffI)", (long long)e->touchId, (long long)e->fingerId,
+            data = Py_BuildValue("(LLfffffI)", (long long)e->touchID, (long long)e->fingerID,
                 e->x, e->y, e->dx, e->dy, e->pressure, e->windowID);
         }
         break;
-    case SDL_MULTIGESTURE: {
-            SDL_MultiGestureEvent *e = &event->mgesture;
-            data = Py_BuildValue("(Lffffi)", (long long)e->touchId,
-                e->dTheta, e->dDist, e->x, e->y, e->numFingers);
-        }
+    case SDL_EVENT_DROP_FILE:
+    case SDL_EVENT_DROP_TEXT:
+        // SDL3 owns drop.data; do not free it.
+        data = Py_BuildValue("(sI)", event->drop.data ? event->drop.data : "", event->drop.windowID);
         break;
-    case SDL_DOLLARGESTURE:
-    case SDL_DOLLARRECORD: {
-            SDL_DollarGestureEvent *e = &event->dgesture;
-            data = Py_BuildValue("(LLifff)", (long long)e->touchId, (long long)e->gestureId,
-                e->numFingers, e->error, e->x, e->y);
-        }
-        break;
-    case SDL_DROPFILE:
-    case SDL_DROPTEXT:
-        data = Py_BuildValue("(sI)", event->drop.file ? event->drop.file : "", event->drop.windowID);
-        if(consume) {
-            SDL_free(event->drop.file);
-        }
-        break;
-    case SDL_DROPBEGIN:
-    case SDL_DROPCOMPLETE:
+    case SDL_EVENT_DROP_BEGIN:
+    case SDL_EVENT_DROP_COMPLETE:
         data = Py_BuildValue("(I)", event->drop.windowID);
         break;
-    case SDL_QUIT:
+    case SDL_EVENT_QUIT:
         data = Py_NewRef(Py_None);
         break;
     default:
-        // SDL_USEREVENT .. SDL_LASTEVENT-1 are application / RegisterEvents types.
-        if(event->type >= SDL_USEREVENT) {
+        if(event->type >= SDL_EVENT_WINDOW_FIRST && event->type <= SDL_EVENT_WINDOW_LAST) {
+            SDL_WindowEvent *e = &event->window;
+            data = Py_BuildValue("(iiiI)", event->type, e->data1, e->data2, e->windowID);
+        } else if(event->type >= SDL_EVENT_DISPLAY_FIRST && event->type <= SDL_EVENT_DISPLAY_LAST) {
+            SDL_DisplayEvent *e = &event->display;
+            data = Py_BuildValue("(iiiI)", event->type, e->data1, e->data2, e->displayID);
+        } else if(event->type >= SDL_EVENT_USER) {
             data = Py_BuildValue("(iI)", event->user.code, event->user.windowID);
         } else {
             data = Py_NewRef(Py_None);
@@ -153,22 +133,22 @@ static PyObject * PySDL_PumpEvents(PyObject *self, PyObject *ign) {
 
 static PyObject * PySDL_PollEvent(PyObject *self, PyObject *ign) {
     SDL_Event event;
-    if(0 == SDL_PollEvent(&event)) {
+    if(!SDL_PollEvent(&event)) {
         Py_RETURN_NONE;
     }
-    return _event(&event, 1);
+    return _event(&event);
 }
 
 static PyObject * PySDL_WaitEvent(PyObject *self, PyObject *ign) {
     SDL_Event event;
-    int ok;
+    bool ok;
     Py_BEGIN_ALLOW_THREADS
         ok = SDL_WaitEvent(&event);
     Py_END_ALLOW_THREADS
-    if(0 == ok) {
+    if(!ok) {
         Py_RETURN_NONE;
     }
-    return _event(&event, 1);
+    return _event(&event);
 }
 
 static PyObject * PySDL_WaitEventTimeout(PyObject *self, PyObject *arg) {
@@ -177,14 +157,14 @@ static PyObject * PySDL_WaitEventTimeout(PyObject *self, PyObject *arg) {
         return NULL;
     }
     SDL_Event event;
-    int ok;
+    bool ok;
     Py_BEGIN_ALLOW_THREADS
-        ok = SDL_WaitEventTimeout(&event, (int)ms);
+        ok = SDL_WaitEventTimeout(&event, (Sint32)ms);
     Py_END_ALLOW_THREADS
-    if(0 == ok) {
+    if(!ok) {
         Py_RETURN_NONE;
     }
-    return _event(&event, 1);
+    return _event(&event);
 }
 
 //=========================================================
@@ -207,19 +187,18 @@ static PyObject * PySDL_PushEvent(PyObject *self, PyObject *args, PyObject *kwds
     event.user.code = code;
     event.user.windowID = windowID;
 
-    int rc = SDL_PushEvent(&event);
-    if(0 > rc) {
+    if(!SDL_PushEvent(&event)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
-    return PyBool_FromLong(rc);  // 1 pushed, 0 dropped by a filter
+    Py_RETURN_TRUE;
 }
 
 static PyObject * PySDL_PeepEvents(PyObject *self, PyObject *args) {
     int numevents;
     int action = SDL_PEEKEVENT;
-    unsigned int minType = SDL_FIRSTEVENT;
-    unsigned int maxType = SDL_LASTEVENT;
+    unsigned int minType = SDL_EVENT_FIRST;
+    unsigned int maxType = SDL_EVENT_LAST;
 
     if(!PyArg_ParseTuple(args, "i|iII", &numevents, &action, &minType, &maxType)) {
         return NULL;
@@ -239,7 +218,7 @@ static PyObject * PySDL_PeepEvents(PyObject *self, PyObject *args) {
 
     int got;
     Py_BEGIN_ALLOW_THREADS
-        got = SDL_PeepEvents(events, numevents, (SDL_eventaction)action, minType, maxType);
+        got = SDL_PeepEvents(events, numevents, (SDL_EventAction)action, minType, maxType);
     Py_END_ALLOW_THREADS
     if(0 > got) {
         PyMem_Free(events);
@@ -253,7 +232,7 @@ static PyObject * PySDL_PeepEvents(PyObject *self, PyObject *args) {
         return NULL;
     }
     for(int idx = 0; idx < got; ++idx) {
-        PyObject *item = _event(&events[idx], SDL_GETEVENT == action);
+        PyObject *item = _event(&events[idx]);
         if(NULL == item) {
             Py_DECREF(list);
             PyMem_Free(events);
@@ -275,8 +254,8 @@ static PyObject * PySDL_FlushEvent(PyObject *self, PyObject *arg) {
 }
 
 static PyObject * PySDL_FlushEvents(PyObject *self, PyObject *args) {
-    unsigned int minType = SDL_FIRSTEVENT;
-    unsigned int maxType = SDL_LASTEVENT;
+    unsigned int minType = SDL_EVENT_FIRST;
+    unsigned int maxType = SDL_EVENT_LAST;
     if(!PyArg_ParseTuple(args, "|II", &minType, &maxType)) {
         return NULL;
     }
@@ -293,8 +272,8 @@ static PyObject * PySDL_HasEvent(PyObject *self, PyObject *arg) {
 }
 
 static PyObject * PySDL_HasEvents(PyObject *self, PyObject *args) {
-    unsigned int minType = SDL_FIRSTEVENT;
-    unsigned int maxType = SDL_LASTEVENT;
+    unsigned int minType = SDL_EVENT_FIRST;
+    unsigned int maxType = SDL_EVENT_LAST;
     if(!PyArg_ParseTuple(args, "|II", &minType, &maxType)) {
         return NULL;
     }
@@ -314,13 +293,16 @@ static PyObject * PySDL_RegisterEvents(PyObject *self, PyObject *arg) {
     return PyLong_FromUnsignedLong(base);
 }
 
+// SDL3: SDL_EventState/SDL_QUERY -> SDL_SetEventEnabled / SDL_EventEnabled.
 static PyObject * PySDL_EventState(PyObject *self, PyObject *args) {
     unsigned int type;
     int state;
     if(!PyArg_ParseTuple(args, "Ii", &type, &state)) {
         return NULL;
     }
-    return PyLong_FromLong(SDL_EventState(type, state));
+    bool was = SDL_EventEnabled(type);
+    SDL_SetEventEnabled(type, state ? true : false);
+    return PyBool_FromLong(was);
 }
 
 static PyObject * PySDL_GetEventState(PyObject *self, PyObject *arg) {
@@ -328,11 +310,13 @@ static PyObject * PySDL_GetEventState(PyObject *self, PyObject *arg) {
     if(-1 == type && PyErr_Occurred()) {
         return NULL;
     }
-    return PyLong_FromLong(SDL_EventState((Uint32)type, SDL_QUERY));
+    return PyBool_FromLong(SDL_EventEnabled((Uint32)type));
 }
 
 static PyObject * PySDL_QuitRequested(PyObject *self, PyObject *ign) {
-    return PyBool_FromLong(SDL_QuitRequested());
+    SDL_PumpEvents();
+    int pending = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_QUIT, SDL_EVENT_QUIT);
+    return PyBool_FromLong(pending > 0);
 }
 
 //=========================================================
@@ -341,15 +325,15 @@ static PyObject * PySDL_QuitRequested(PyObject *self, PyObject *ign) {
 
 static PyObject *_py_event_filter = NULL;
 
-// Run `callable` on the converted event; returns 1 to keep the event, 0 to drop.
-static int _run_filter(PyObject *callable, SDL_Event *event) {
+// Run `callable` on the converted event; returns true to keep it, false to drop.
+static bool _run_filter(PyObject *callable, SDL_Event *event) {
     PyGILState_STATE gil;
     if(!PySDL_ThreadEnter(&gil)) {
-        return 1;  // interpreter gone: keep the event, do nothing
+        return true;  // interpreter gone: keep the event, do nothing
     }
 
-    int keep = 1;
-    PyObject *converted = _event(event, 0);
+    bool keep = true;
+    PyObject *converted = _event(event);
     if(NULL == converted) {
         PyErr_Print();
     } else {
@@ -358,11 +342,12 @@ static int _run_filter(PyObject *callable, SDL_Event *event) {
         if(NULL == result) {
             PyErr_Print();
         } else {
-            keep = PyObject_IsTrue(result);
+            int truth = PyObject_IsTrue(result);
             Py_DECREF(result);
-            if(-1 == keep) {
+            if(-1 == truth) {
                 PyErr_Print();
-                keep = 1;
+            } else {
+                keep = truth != 0;
             }
         }
     }
@@ -371,12 +356,12 @@ static int _run_filter(PyObject *callable, SDL_Event *event) {
     return keep;
 }
 
-static int SDLCALL _c_event_filter(void *userdata, SDL_Event *event) {
+static bool SDLCALL _c_event_filter(void *userdata, SDL_Event *event) {
     (void)userdata;
-    return NULL == _py_event_filter ? 1 : _run_filter(_py_event_filter, event);
+    return NULL == _py_event_filter ? true : _run_filter(_py_event_filter, event);
 }
 
-static int SDLCALL _c_filter_once(void *userdata, SDL_Event *event) {
+static bool SDLCALL _c_filter_once(void *userdata, SDL_Event *event) {
     return _run_filter((PyObject *)userdata, event);
 }
 
@@ -426,6 +411,8 @@ PyMethodDef pysdl_events_methods[] = {
     { "RegisterEvents",    PySDL_RegisterEvents,    METH_O       },
     { "EventState",        PySDL_EventState,        METH_VARARGS },
     { "GetEventState",     PySDL_GetEventState,     METH_O       },
+    { "SetEventEnabled",   PySDL_EventState,        METH_VARARGS },
+    { "EventEnabled",      PySDL_GetEventState,     METH_O       },
     { "QuitRequested",     PySDL_QuitRequested,     METH_NOARGS  },
     { "SetEventFilter",    PySDL_SetEventFilter,    METH_O       },
     { "GetEventFilter",    PySDL_GetEventFilter,    METH_NOARGS  },

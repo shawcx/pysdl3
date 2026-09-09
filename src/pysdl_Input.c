@@ -1,15 +1,29 @@
 #include "pysdl.h"
 
 // Module-level keyboard, mouse, and text-input functions. Registered in
-// PyInit_SDL2 with PyModule_AddFunctions(module, pysdl_input_methods).
+// PyInit_SDL3 with PyModule_AddFunctions(module, pysdl_input_methods).
+
+// Optional trailing SDL3.Window argument -> SDL_Window * (or NULL / error).
+static int _opt_window(PyObject *obj, SDL_Window **out) {
+    *out = NULL;
+    if(NULL == obj || obj == Py_None) {
+        return 1;
+    }
+    if(!PyObject_TypeCheck(obj, &PySDL_Window_Type)) {
+        PyErr_SetString(PyExc_TypeError, "expected an SDL3.Window or None");
+        return 0;
+    }
+    *out = ((PySDL_Window *)obj)->window;
+    return 1;
+}
 
 //=========================================================
 // keyboard
 //=========================================================
 
 static PyObject * PySDL_GetKeyName(PyObject *self, PyObject *arg) {
-    long key = PyLong_AsLong(arg);
-    if(-1 == key && PyErr_Occurred()) {
+    unsigned long key = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == key && PyErr_Occurred()) {
         return NULL;
     }
     return PyUnicode_FromString(SDL_GetKeyName((SDL_Keycode)key));
@@ -20,7 +34,7 @@ static PyObject * PySDL_GetKeyFromName(PyObject *self, PyObject *arg) {
     if(NULL == name) {
         return NULL;
     }
-    return PyLong_FromLong(SDL_GetKeyFromName(name));
+    return PyLong_FromUnsignedLong(SDL_GetKeyFromName(name));
 }
 
 static PyObject * PySDL_GetScancodeName(PyObject *self, PyObject *arg) {
@@ -44,15 +58,15 @@ static PyObject * PySDL_GetKeyFromScancode(PyObject *self, PyObject *arg) {
     if(-1 == scancode && PyErr_Occurred()) {
         return NULL;
     }
-    return PyLong_FromLong(SDL_GetKeyFromScancode((SDL_Scancode)scancode));
+    return PyLong_FromUnsignedLong(SDL_GetKeyFromScancode((SDL_Scancode)scancode, SDL_KMOD_NONE, false));
 }
 
 static PyObject * PySDL_GetScancodeFromKey(PyObject *self, PyObject *arg) {
-    long key = PyLong_AsLong(arg);
-    if(-1 == key && PyErr_Occurred()) {
+    unsigned long key = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == key && PyErr_Occurred()) {
         return NULL;
     }
-    return PyLong_FromLong(SDL_GetScancodeFromKey((SDL_Keycode)key));
+    return PyLong_FromLong(SDL_GetScancodeFromKey((SDL_Keycode)key, NULL));
 }
 
 static PyObject * PySDL_SetModState(PyObject *self, PyObject *arg) {
@@ -70,7 +84,7 @@ static PyObject * PySDL_GetModState(PyObject *self, PyObject *ign) {
 
 static PyObject * PySDL_GetKeyState(PyObject *self, PyObject *ign) {
     int len = 0;
-    const Uint8 *keys = SDL_GetKeyboardState(&len);
+    const bool *keys = SDL_GetKeyboardState(&len);
     PyObject *list = PyList_New(len);
     if(NULL == list) {
         return NULL;
@@ -91,110 +105,158 @@ static PyObject * PySDL_HasScreenKeyboardSupport(PyObject *self, PyObject *ign) 
 
 static PyObject * PySDL_IsScreenKeyboardShown(PyObject *self, PyObject *arg) {
     if(!PyObject_TypeCheck(arg, &PySDL_Window_Type)) {
-        PyErr_SetString(PyExc_TypeError, "expected an SDL2.Window");
+        PyErr_SetString(PyExc_TypeError, "expected an SDL3.Window");
         return NULL;
     }
-    return PyBool_FromLong(SDL_IsScreenKeyboardShown(((PySDL_Window *)arg)->window));
+    return PyBool_FromLong(SDL_ScreenKeyboardShown(((PySDL_Window *)arg)->window));
 }
 
 //=========================================================
-// text input
+// text input  (SDL3: per-window)
 //=========================================================
 
-static PyObject * PySDL_StartTextInput(PyObject *self, PyObject *ign) {
-    SDL_StartTextInput();
+static PyObject * PySDL_StartTextInput(PyObject *self, PyObject *arg) {
+    SDL_Window *window;
+    if(!_opt_window(arg, &window) || NULL == window) {
+        if(!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "StartTextInput requires a Window");
+        }
+        return NULL;
+    }
+    if(!SDL_StartTextInput(window)) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+        return NULL;
+    }
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_StopTextInput(PyObject *self, PyObject *ign) {
-    SDL_StopTextInput();
+static PyObject * PySDL_StopTextInput(PyObject *self, PyObject *arg) {
+    SDL_Window *window;
+    if(!_opt_window(arg, &window) || NULL == window) {
+        if(!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "StopTextInput requires a Window");
+        }
+        return NULL;
+    }
+    SDL_StopTextInput(window);
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_IsTextInputActive(PyObject *self, PyObject *ign) {
-    return PyBool_FromLong(SDL_IsTextInputActive());
+static PyObject * PySDL_IsTextInputActive(PyObject *self, PyObject *arg) {
+    SDL_Window *window;
+    if(!_opt_window(arg, &window) || NULL == window) {
+        if(!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "IsTextInputActive requires a Window");
+        }
+        return NULL;
+    }
+    return PyBool_FromLong(SDL_TextInputActive(window));
 }
 
-static PyObject * PySDL_SetTextInputRect(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_SetTextInputRect(PyObject *self, PyObject *args) {
+    PyObject *window_py;
+    PyObject *rect_py;
+    int cursor = 0;
+    if(!PyArg_ParseTuple(args, "OO|i", &window_py, &rect_py, &cursor)) {
+        return NULL;
+    }
+    SDL_Window *window;
+    if(!_opt_window(window_py, &window) || NULL == window) {
+        if(!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "SetTextInputArea requires a Window");
+        }
+        return NULL;
+    }
     SDL_Rect rect;
     SDL_Rect *rp = NULL;
-    if(arg != Py_None) {
-        if(!PyToRect(arg, &rect)) {
+    if(rect_py != Py_None) {
+        if(!PyToRect(rect_py, &rect)) {
             return NULL;
         }
         rp = &rect;
     }
-    SDL_SetTextInputRect(rp);
+    SDL_SetTextInputArea(window, rp, cursor);
     Py_RETURN_NONE;
 }
 
 //=========================================================
-// mouse
+// mouse  (SDL3: float coordinates)
 //=========================================================
 
 static PyObject * PySDL_GetMouseState(PyObject *self, PyObject *ign) {
-    int x = 0, y = 0;
-    Uint32 buttons = SDL_GetMouseState(&x, &y);
-    return Py_BuildValue("(Iii)", buttons, x, y);
+    float x = 0, y = 0;
+    SDL_MouseButtonFlags buttons = SDL_GetMouseState(&x, &y);
+    return Py_BuildValue("(Iff)", buttons, x, y);
 }
 
 static PyObject * PySDL_GetGlobalMouseState(PyObject *self, PyObject *ign) {
-    int x = 0, y = 0;
-    Uint32 buttons = SDL_GetGlobalMouseState(&x, &y);
-    return Py_BuildValue("(Iii)", buttons, x, y);
+    float x = 0, y = 0;
+    SDL_MouseButtonFlags buttons = SDL_GetGlobalMouseState(&x, &y);
+    return Py_BuildValue("(Iff)", buttons, x, y);
 }
 
 static PyObject * PySDL_GetRelativeMouseState(PyObject *self, PyObject *ign) {
-    int x = 0, y = 0;
-    Uint32 buttons = SDL_GetRelativeMouseState(&x, &y);
-    return Py_BuildValue("(Iii)", buttons, x, y);
+    float x = 0, y = 0;
+    SDL_MouseButtonFlags buttons = SDL_GetRelativeMouseState(&x, &y);
+    return Py_BuildValue("(Iff)", buttons, x, y);
 }
 
 static PyObject * PySDL_WarpMouseInWindow(PyObject *self, PyObject *args) {
     PyObject *window_py;
-    int x, y;
-    if(!PyArg_ParseTuple(args, "Oii", &window_py, &x, &y)) {
+    float x, y;
+    if(!PyArg_ParseTuple(args, "Off", &window_py, &x, &y)) {
         return NULL;
     }
-
-    SDL_Window *window = NULL;
-    if(window_py != Py_None) {
-        if(!PyObject_TypeCheck(window_py, &PySDL_Window_Type)) {
-            PyErr_SetString(PyExc_TypeError, "expected an SDL2.Window or None");
-            return NULL;
-        }
-        window = ((PySDL_Window *)window_py)->window;
+    SDL_Window *window;
+    if(!_opt_window(window_py, &window)) {
+        return NULL;
     }
     SDL_WarpMouseInWindow(window, x, y);
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_WarpMouseGlobal(PyObject *self, PyObject *args) {
-    int x, y;
-    if(!PyArg_ParseTuple(args, "ii", &x, &y)) {
+    float x, y;
+    if(!PyArg_ParseTuple(args, "ff", &x, &y)) {
         return NULL;
     }
-    if(0 > SDL_WarpMouseGlobal(x, y)) {
+    if(!SDL_WarpMouseGlobal(x, y)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_SetRelativeMouseMode(PyObject *self, PyObject *arg) {
-    int enable = PyObject_IsTrue(arg);
-    if(-1 == enable) {
+// SDL3: relative mouse mode is per-window.
+static PyObject * PySDL_SetRelativeMouseMode(PyObject *self, PyObject *args) {
+    PyObject *window_py;
+    int enable;
+    if(!PyArg_ParseTuple(args, "Op", &window_py, &enable)) {
         return NULL;
     }
-    if(0 > SDL_SetRelativeMouseMode(enable ? true : false)) {
+    SDL_Window *window;
+    if(!_opt_window(window_py, &window) || NULL == window) {
+        if(!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "SetRelativeMouseMode requires a Window");
+        }
+        return NULL;
+    }
+    if(!SDL_SetWindowRelativeMouseMode(window, enable ? true : false)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_GetRelativeMouseMode(PyObject *self, PyObject *ign) {
-    return PyBool_FromLong(SDL_GetRelativeMouseMode());
+static PyObject * PySDL_GetRelativeMouseMode(PyObject *self, PyObject *arg) {
+    SDL_Window *window;
+    if(!_opt_window(arg, &window) || NULL == window) {
+        if(!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "GetRelativeMouseMode requires a Window");
+        }
+        return NULL;
+    }
+    return PyBool_FromLong(SDL_GetWindowRelativeMouseMode(window));
 }
 
 static PyObject * PySDL_CaptureMouse(PyObject *self, PyObject *arg) {
@@ -202,7 +264,7 @@ static PyObject * PySDL_CaptureMouse(PyObject *self, PyObject *arg) {
     if(-1 == enable) {
         return NULL;
     }
-    if(0 > SDL_CaptureMouse(enable ? true : false)) {
+    if(!SDL_CaptureMouse(enable ? true : false)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
@@ -214,11 +276,18 @@ static PyObject * PySDL_GetMouseFocus(PyObject *self, PyObject *ign) {
 }
 
 //=========================================================
-// touch
+// touch  (SDL3: SDL_TouchID lists; the gesture API is gone)
 //=========================================================
 
+static SDL_TouchID * _touch_devices(int *count) {
+    return SDL_GetTouchDevices(count);
+}
+
 static PyObject * PySDL_GetNumTouchDevices(PyObject *self, PyObject *ign) {
-    return PyLong_FromLong(SDL_GetNumTouchDevices());
+    int count = 0;
+    SDL_TouchID *ids = _touch_devices(&count);
+    SDL_free(ids);
+    return PyLong_FromLong(count);
 }
 
 static PyObject * PySDL_GetTouchDevice(PyObject *self, PyObject *arg) {
@@ -226,114 +295,62 @@ static PyObject * PySDL_GetTouchDevice(PyObject *self, PyObject *arg) {
     if(-1 == index && PyErr_Occurred()) {
         return NULL;
     }
-    return PyLong_FromLongLong(SDL_GetTouchDevice((int)index));
+    int count = 0;
+    SDL_TouchID *ids = _touch_devices(&count);
+    if(NULL == ids || index < 0 || index >= count) {
+        SDL_free(ids);
+        PyErr_SetString(PyExc_IndexError, "touch device index out of range");
+        return NULL;
+    }
+    SDL_TouchID id = ids[index];
+    SDL_free(ids);
+    return PyLong_FromUnsignedLongLong(id);
 }
 
 static PyObject * PySDL_GetTouchDeviceType(PyObject *self, PyObject *arg) {
-    long long touchID = PyLong_AsLongLong(arg);
-    if(-1 == touchID && PyErr_Occurred()) {
+    unsigned long long touchID = PyLong_AsUnsignedLongLong(arg);
+    if((unsigned long long)-1 == touchID && PyErr_Occurred()) {
         return NULL;
     }
     return PyLong_FromLong(SDL_GetTouchDeviceType((SDL_TouchID)touchID));
 }
 
-#if SDL_VERSION_ATLEAST(2,0,22)
 static PyObject * PySDL_GetTouchName(PyObject *self, PyObject *arg) {
-    long index = PyLong_AsLong(arg);
-    if(-1 == index && PyErr_Occurred()) {
+    unsigned long long touchID = PyLong_AsUnsignedLongLong(arg);
+    if((unsigned long long)-1 == touchID && PyErr_Occurred()) {
         return NULL;
     }
-    const char *name = SDL_GetTouchName((int)index);
+    const char *name = SDL_GetTouchDeviceName((SDL_TouchID)touchID);
     return PyUnicode_FromString(name ? name : "");
 }
-#endif
 
 static PyObject * PySDL_GetNumTouchFingers(PyObject *self, PyObject *arg) {
-    long long touchID = PyLong_AsLongLong(arg);
-    if(-1 == touchID && PyErr_Occurred()) {
+    unsigned long long touchID = PyLong_AsUnsignedLongLong(arg);
+    if((unsigned long long)-1 == touchID && PyErr_Occurred()) {
         return NULL;
     }
-    return PyLong_FromLong(SDL_GetNumTouchFingers((SDL_TouchID)touchID));
+    int count = 0;
+    SDL_Finger **fingers = SDL_GetTouchFingers((SDL_TouchID)touchID, &count);
+    SDL_free(fingers);
+    return PyLong_FromLong(count);
 }
 
 static PyObject * PySDL_GetTouchFinger(PyObject *self, PyObject *args) {
-    long long touchID;
+    unsigned long long touchID;
     int index;
-    if(!PyArg_ParseTuple(args, "Li", &touchID, &index)) {
+    if(!PyArg_ParseTuple(args, "Ki", &touchID, &index)) {
         return NULL;
     }
-    SDL_Finger *finger = SDL_GetTouchFinger((SDL_TouchID)touchID, index);
-    if(NULL == finger) {
+    int count = 0;
+    SDL_Finger **fingers = SDL_GetTouchFingers((SDL_TouchID)touchID, &count);
+    if(NULL == fingers || index < 0 || index >= count) {
+        SDL_free(fingers);
         Py_RETURN_NONE;
     }
-    return Py_BuildValue("(Lfff)", (long long)finger->id, finger->x, finger->y, finger->pressure);
-}
-
-static PyObject * PySDL_RecordGesture(PyObject *self, PyObject *arg) {
-    long long touchID = PyLong_AsLongLong(arg);
-    if(-1 == touchID && PyErr_Occurred()) {
-        return NULL;
-    }
-    return PyBool_FromLong(SDL_RecordGesture((SDL_TouchID)touchID));
-}
-
-static PyObject * PySDL_LoadDollarTemplates(PyObject *self, PyObject *args) {
-    long long touchID;
-    const char *path;
-    if(!PyArg_ParseTuple(args, "Ls", &touchID, &path)) {
-        return NULL;
-    }
-    SDL_RWops *rw = SDL_RWFromFile(path, "rb");
-    if(NULL == rw) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
-    int rc = SDL_LoadDollarTemplates((SDL_TouchID)touchID, rw);
-    SDL_RWclose(rw);
-    if(0 > rc) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
-    return PyLong_FromLong(rc);
-}
-
-static PyObject * PySDL_SaveDollarTemplate(PyObject *self, PyObject *args) {
-    long long gestureID;
-    const char *path;
-    if(!PyArg_ParseTuple(args, "Ls", &gestureID, &path)) {
-        return NULL;
-    }
-    SDL_RWops *rw = SDL_RWFromFile(path, "wb");
-    if(NULL == rw) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
-    int rc = SDL_SaveDollarTemplate((SDL_GestureID)gestureID, rw);
-    SDL_RWclose(rw);
-    if(0 == rc) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
-    Py_RETURN_NONE;
-}
-
-static PyObject * PySDL_SaveAllDollarTemplates(PyObject *self, PyObject *arg) {
-    const char *path = PyUnicode_AsUTF8(arg);
-    if(NULL == path) {
-        return NULL;
-    }
-    SDL_RWops *rw = SDL_RWFromFile(path, "wb");
-    if(NULL == rw) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
-    int rc = SDL_SaveAllDollarTemplates(rw);
-    SDL_RWclose(rw);
-    if(0 == rc) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
-    return PyLong_FromLong(rc);
+    SDL_Finger *f = fingers[index];
+    PyObject *result = Py_BuildValue("(Lfff)", (long long)f->id, f->x, f->y, f->pressure);
+    SDL_free(fingers);
+    return result;
 }
 
 PyMethodDef pysdl_input_methods[] = {
@@ -350,33 +367,29 @@ PyMethodDef pysdl_input_methods[] = {
     { "HasScreenKeyboardSupport", PySDL_HasScreenKeyboardSupport, METH_NOARGS },
     { "IsScreenKeyboardShown",    PySDL_IsScreenKeyboardShown,    METH_O      },
 
-    { "StartTextInput",           PySDL_StartTextInput,          METH_NOARGS },
-    { "StopTextInput",            PySDL_StopTextInput,           METH_NOARGS },
-    { "IsTextInputActive",        PySDL_IsTextInputActive,       METH_NOARGS },
-    { "SetTextInputRect",         PySDL_SetTextInputRect,        METH_O      },
+    { "StartTextInput",           PySDL_StartTextInput,          METH_O       },
+    { "StopTextInput",            PySDL_StopTextInput,           METH_O       },
+    { "IsTextInputActive",        PySDL_IsTextInputActive,       METH_O       },
+    { "SetTextInputRect",         PySDL_SetTextInputRect,        METH_VARARGS },
+    { "SetTextInputArea",         PySDL_SetTextInputRect,        METH_VARARGS },
 
-    { "GetMouseState",            PySDL_GetMouseState,           METH_NOARGS },
-    { "GetGlobalMouseState",      PySDL_GetGlobalMouseState,     METH_NOARGS },
-    { "GetRelativeMouseState",    PySDL_GetRelativeMouseState,   METH_NOARGS },
+    { "GetMouseState",            PySDL_GetMouseState,           METH_NOARGS  },
+    { "GetGlobalMouseState",      PySDL_GetGlobalMouseState,     METH_NOARGS  },
+    { "GetRelativeMouseState",    PySDL_GetRelativeMouseState,   METH_NOARGS  },
     { "WarpMouseInWindow",        PySDL_WarpMouseInWindow,       METH_VARARGS },
     { "WarpMouseGlobal",          PySDL_WarpMouseGlobal,         METH_VARARGS },
-    { "SetRelativeMouseMode",     PySDL_SetRelativeMouseMode,    METH_O      },
-    { "GetRelativeMouseMode",     PySDL_GetRelativeMouseMode,    METH_NOARGS },
-    { "CaptureMouse",             PySDL_CaptureMouse,            METH_O      },
-    { "GetMouseFocus",            PySDL_GetMouseFocus,           METH_NOARGS },
+    { "SetRelativeMouseMode",     PySDL_SetRelativeMouseMode,    METH_VARARGS },
+    { "GetRelativeMouseMode",     PySDL_GetRelativeMouseMode,    METH_O       },
+    { "CaptureMouse",             PySDL_CaptureMouse,            METH_O       },
+    { "GetMouseFocus",            PySDL_GetMouseFocus,           METH_NOARGS  },
 
-    { "GetNumTouchDevices",       PySDL_GetNumTouchDevices,      METH_NOARGS },
-    { "GetTouchDevice",           PySDL_GetTouchDevice,          METH_O      },
-    { "GetTouchDeviceType",       PySDL_GetTouchDeviceType,      METH_O      },
-#if SDL_VERSION_ATLEAST(2,0,22)
-    { "GetTouchName",             PySDL_GetTouchName,            METH_O      },
-#endif
-    { "GetNumTouchFingers",       PySDL_GetNumTouchFingers,      METH_O      },
+    { "GetNumTouchDevices",       PySDL_GetNumTouchDevices,      METH_NOARGS  },
+    { "GetTouchDevice",           PySDL_GetTouchDevice,          METH_O       },
+    { "GetTouchDeviceType",       PySDL_GetTouchDeviceType,      METH_O       },
+    { "GetTouchName",             PySDL_GetTouchName,            METH_O       },
+    { "GetTouchDeviceName",       PySDL_GetTouchName,            METH_O       },
+    { "GetNumTouchFingers",       PySDL_GetNumTouchFingers,      METH_O       },
     { "GetTouchFinger",           PySDL_GetTouchFinger,          METH_VARARGS },
-    { "RecordGesture",            PySDL_RecordGesture,           METH_O      },
-    { "LoadDollarTemplates",      PySDL_LoadDollarTemplates,     METH_VARARGS },
-    { "SaveDollarTemplate",       PySDL_SaveDollarTemplate,      METH_VARARGS },
-    { "SaveAllDollarTemplates",   PySDL_SaveAllDollarTemplates,  METH_O      },
 
     { NULL }
 };
