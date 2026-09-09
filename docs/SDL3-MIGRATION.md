@@ -250,7 +250,22 @@ window arg (module-function API change); `SDL_SetRelativeMouseMode` →
 `SDL_GetTouchDevices` / `SDL_GetTouchFingers`; **delete `RecordGesture` + the
 dollar-template functions** (removes the last RWops uses).
 
-### Phase F — Audio
+### Phase F — Audio — DONE
+
+`pysdl_Audio.c` + `pysdl_AudioStream.c` rewritten to the SDL3 `SDL_AudioStream`
+model; both compile clean. `AudioStream` uses `SDL_CreateAudioStream(&src, &dst)`
+and the `SDL_(Put|Get|Flush|Clear)AudioStream*` renames. `Audio.Open` wraps
+`SDL_OpenAudioDeviceStream` (default device); `PySDL_Audio` holds the bound
+stream; the callback trampolines take `(userdata, stream, additional, total)` —
+playback pushes the bytes the Python callback returns, recording drains the
+stream and hands the callback bytes. `Queue` / `Dequeue` / `GetQueueSize` /
+`ClearQueued` go through the stream; `Pause(bool)` →
+`SDL_PauseAudioDevice` / `SDL_ResumeAudioDevice`; `GetStatus` → `0/1/2` via
+`SDL_AudioDevicePaused`. `LoadWAV` → `SDL_LoadWAV_IO` / `SDL_LoadWAV`;
+`MixAudioFormat` → `SDL_MixAudio` (float volume); device queries →
+`SDL_GetAudioDeviceFormat`; `AudioInit` / `AudioQuit` dropped.
+
+Original plan:
 
 `pysdl_Audio.c` rewrite + `pysdl_AudioStream.c`.
 
