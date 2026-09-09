@@ -33,13 +33,13 @@ PyTypeObject PySDL_Sensor_Type = {
 };
 
 static int PySDL_Sensor_Type_init(PySDL_Sensor *self, PyObject *args, PyObject *kwds) {
-    int index = -1;
-    if(!PyArg_ParseTuple(args, "|i", &index)) {
+    long long id = -1;
+    if(!PyArg_ParseTuple(args, "|L", &id)) {
         return -1;
     }
     self->sensor = NULL;
-    if(index >= 0) {
-        self->sensor = SDL_SensorOpen(index);
+    if(id > 0) {
+        self->sensor = SDL_OpenSensor((SDL_SensorID)id);
         if(NULL == self->sensor) {
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
@@ -50,7 +50,7 @@ static int PySDL_Sensor_Type_init(PySDL_Sensor *self, PyObject *args, PyObject *
 
 static void PySDL_Sensor_Type_dealloc(PySDL_Sensor *self) {
     if(NULL != self->sensor) {
-        SDL_SensorClose(self->sensor);
+        SDL_CloseSensor(self->sensor);
         self->sensor = NULL;
     }
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -67,23 +67,23 @@ static SDL_Sensor * _s(PySDL_Sensor *self) {
 static PyObject * PySDL_Sensor_GetName(PySDL_Sensor *self, PyObject *ign) {
     SDL_Sensor *s = _s(self);
     if(NULL == s) return NULL;
-    const char *name = SDL_SensorGetName(s);
+    const char *name = SDL_GetSensorName(s);
     return PyUnicode_FromString(name ? name : "");
 }
 
 static PyObject * PySDL_Sensor_GetType(PySDL_Sensor *self, PyObject *ign) {
     SDL_Sensor *s = _s(self);
-    return s ? PyLong_FromLong(SDL_SensorGetType(s)) : NULL;
+    return s ? PyLong_FromLong(SDL_GetSensorType(s)) : NULL;
 }
 
 static PyObject * PySDL_Sensor_GetNonPortableType(PySDL_Sensor *self, PyObject *ign) {
     SDL_Sensor *s = _s(self);
-    return s ? PyLong_FromLong(SDL_SensorGetNonPortableType(s)) : NULL;
+    return s ? PyLong_FromLong(SDL_GetSensorNonPortableType(s)) : NULL;
 }
 
 static PyObject * PySDL_Sensor_GetInstanceID(PySDL_Sensor *self, PyObject *ign) {
     SDL_Sensor *s = _s(self);
-    return s ? PyLong_FromLong(SDL_SensorGetInstanceID(s)) : NULL;
+    return s ? PyLong_FromUnsignedLong(SDL_GetSensorID(s)) : NULL;
 }
 
 static PyObject * PySDL_Sensor_GetData(PySDL_Sensor *self, PyObject *args, PyObject *kwds) {
@@ -99,7 +99,7 @@ static PyObject * PySDL_Sensor_GetData(PySDL_Sensor *self, PyObject *args, PyObj
     }
 
     float values[16];
-    if(0 > SDL_SensorGetData(s, values, count)) {
+    if(!SDL_GetSensorData(s, values, count)) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
@@ -121,7 +121,7 @@ static PyObject * PySDL_Sensor_GetData(PySDL_Sensor *self, PyObject *args, PyObj
 
 static PyObject * PySDL_Sensor_Close(PySDL_Sensor *self, PyObject *ign) {
     if(NULL != self->sensor) {
-        SDL_SensorClose(self->sensor);
+        SDL_CloseSensor(self->sensor);
         self->sensor = NULL;
     }
     Py_RETURN_NONE;
@@ -132,42 +132,59 @@ static PyObject * PySDL_Sensor_Close(PySDL_Sensor *self, PyObject *ign) {
 //=========================================================
 
 static PyObject * PySDL_NumSensors(PyObject *self, PyObject *ign) {
-    return PyLong_FromLong(SDL_NumSensors());
+    int count = 0;
+    SDL_SensorID *ids = SDL_GetSensors(&count);
+    SDL_free(ids);
+    return PyLong_FromLong(count);
+}
+
+static PyObject * PySDL_GetSensors(PyObject *self, PyObject *ign) {
+    int count = 0;
+    SDL_SensorID *ids = SDL_GetSensors(&count);
+    PyObject *list = PyList_New(count);
+    if(NULL == list) {
+        SDL_free(ids);
+        return NULL;
+    }
+    for(int idx = 0; idx < count; ++idx) {
+        PyList_SET_ITEM(list, idx, PyLong_FromUnsignedLong(ids[idx]));
+    }
+    SDL_free(ids);
+    return list;
 }
 
 static PyObject * PySDL_SensorGetDeviceName(PyObject *self, PyObject *arg) {
-    long index = PyLong_AsLong(arg);
-    if(-1 == index && PyErr_Occurred()) {
+    unsigned long id = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == id && PyErr_Occurred()) {
         return NULL;
     }
-    const char *name = SDL_SensorGetDeviceName((int)index);
+    const char *name = SDL_GetSensorNameForID((SDL_SensorID)id);
     return PyUnicode_FromString(name ? name : "");
 }
 
 static PyObject * PySDL_SensorGetDeviceType(PyObject *self, PyObject *arg) {
-    long index = PyLong_AsLong(arg);
-    if(-1 == index && PyErr_Occurred()) {
+    unsigned long id = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == id && PyErr_Occurred()) {
         return NULL;
     }
-    return PyLong_FromLong(SDL_SensorGetDeviceType((int)index));
+    return PyLong_FromLong(SDL_GetSensorTypeForID((SDL_SensorID)id));
 }
 
 static PyObject * PySDL_SensorGetDeviceInstanceID(PyObject *self, PyObject *arg) {
-    long index = PyLong_AsLong(arg);
-    if(-1 == index && PyErr_Occurred()) {
-        return NULL;
-    }
-    return PyLong_FromLong(SDL_SensorGetDeviceInstanceID((int)index));
+    // In SDL3 the "device" is already identified by its SDL_SensorID.
+    return Py_NewRef(arg);
 }
 
 static PyObject * PySDL_SensorUpdate(PyObject *self, PyObject *ign) {
-    SDL_SensorUpdate();
+    SDL_UpdateSensors();
     Py_RETURN_NONE;
 }
 
 PyMethodDef pysdl_sensor_methods[] = {
     { "NumSensors",                 PySDL_NumSensors,                 METH_NOARGS },
+    { "GetSensors",                 PySDL_GetSensors,                 METH_NOARGS },
     { "SensorGetDeviceName",        PySDL_SensorGetDeviceName,        METH_O      },
+    { "GetSensorNameForID",         PySDL_SensorGetDeviceName,        METH_O      },
     { "SensorGetDeviceType",        PySDL_SensorGetDeviceType,        METH_O      },
     { "SensorGetDeviceInstanceID",  PySDL_SensorGetDeviceInstanceID,  METH_O      },
     { "SensorUpdate",               PySDL_SensorUpdate,               METH_NOARGS },

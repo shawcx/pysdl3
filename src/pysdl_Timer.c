@@ -34,7 +34,8 @@ PyTypeObject PySDL_Timer_Type = {
     .tp_new       = PyType_GenericNew
 };
 
-static Uint32 SDLCALL _timer_callback(Uint32 interval, void *param) {
+static Uint32 SDLCALL _timer_callback(void *param, SDL_TimerID timerID, Uint32 interval) {
+    (void)timerID;
     PyObject *callable = (PyObject *)param;
     PyGILState_STATE gil;
 

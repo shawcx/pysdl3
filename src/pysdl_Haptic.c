@@ -65,13 +65,13 @@ PyTypeObject PySDL_Haptic_Type = {
 };
 
 static int PySDL_Haptic_Type_init(PySDL_Haptic *self, PyObject *args, PyObject *kwds) {
-    int index = -1;
-    if(!PyArg_ParseTuple(args, "|i", &index)) {
+    long long id = -1;
+    if(!PyArg_ParseTuple(args, "|L", &id)) {
         return -1;
     }
     self->haptic = NULL;
-    if(index >= 0) {
-        self->haptic = SDL_HapticOpen(index);
+    if(id > 0) {
+        self->haptic = SDL_OpenHaptic((SDL_HapticID)id);
         if(NULL == self->haptic) {
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
@@ -82,7 +82,7 @@ static int PySDL_Haptic_Type_init(PySDL_Haptic *self, PyObject *args, PyObject *
 
 static void PySDL_Haptic_Type_dealloc(PySDL_Haptic *self) {
     if(NULL != self->haptic) {
-        SDL_HapticClose(self->haptic);
+        SDL_CloseHaptic(self->haptic);
         self->haptic = NULL;
     }
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -179,38 +179,38 @@ static int _dict_to_effect(PyObject *dict, SDL_HapticEffect *effect) {
 
 static PyObject * PySDL_Haptic_Index(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
-    return h ? PyLong_FromLong(SDL_HapticIndex(h)) : NULL;
+    return h ? PyLong_FromUnsignedLong(SDL_GetHapticID(h)) : NULL;
 }
 
 static PyObject * PySDL_Haptic_Query(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
-    return h ? PyLong_FromUnsignedLong(SDL_HapticQuery(h)) : NULL;
+    return h ? PyLong_FromUnsignedLong(SDL_GetHapticFeatures(h)) : NULL;
 }
 
 static PyObject * PySDL_Haptic_NumAxes(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
-    return h ? PyLong_FromLong(SDL_HapticNumAxes(h)) : NULL;
+    return h ? PyLong_FromLong(SDL_GetNumHapticAxes(h)) : NULL;
 }
 
 static PyObject * PySDL_Haptic_NumEffects(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
-    return h ? PyLong_FromLong(SDL_HapticNumEffects(h)) : NULL;
+    return h ? PyLong_FromLong(SDL_GetMaxHapticEffects(h)) : NULL;
 }
 
 static PyObject * PySDL_Haptic_NumEffectsPlaying(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
-    return h ? PyLong_FromLong(SDL_HapticNumEffectsPlaying(h)) : NULL;
+    return h ? PyLong_FromLong(SDL_GetMaxHapticEffectsPlaying(h)) : NULL;
 }
 
 static PyObject * PySDL_Haptic_RumbleSupported(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
-    return h ? PyBool_FromLong(SDL_HapticRumbleSupported(h) == true) : NULL;
+    return h ? PyBool_FromLong(SDL_HapticRumbleSupported(h)) : NULL;
 }
 
 static PyObject * PySDL_Haptic_RumbleInit(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
     if(NULL == h) return NULL;
-    if(0 > SDL_HapticRumbleInit(h)) return _raise();
+    if(!SDL_InitHapticRumble(h)) return _raise();
     Py_RETURN_NONE;
 }
 
@@ -221,14 +221,14 @@ static PyObject * PySDL_Haptic_RumblePlay(PySDL_Haptic *self, PyObject *args) {
     if(NULL == h || !PyArg_ParseTuple(args, "fI", &strength, &length)) {
         return NULL;
     }
-    if(0 > SDL_HapticRumblePlay(h, strength, length)) return _raise();
+    if(!SDL_PlayHapticRumble(h, strength, length)) return _raise();
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Haptic_RumbleStop(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
     if(NULL == h) return NULL;
-    if(0 > SDL_HapticRumbleStop(h)) return _raise();
+    if(!SDL_StopHapticRumble(h)) return _raise();
     Py_RETURN_NONE;
 }
 
@@ -236,7 +236,7 @@ static PyObject * PySDL_Haptic_SetGain(PySDL_Haptic *self, PyObject *arg) {
     SDL_Haptic *h = _h(self);
     long gain = PyLong_AsLong(arg);
     if(NULL == h || (-1 == gain && PyErr_Occurred())) return NULL;
-    if(0 > SDL_HapticSetGain(h, (int)gain)) return _raise();
+    if(!SDL_SetHapticGain(h, (int)gain)) return _raise();
     Py_RETURN_NONE;
 }
 
@@ -244,28 +244,28 @@ static PyObject * PySDL_Haptic_SetAutocenter(PySDL_Haptic *self, PyObject *arg) 
     SDL_Haptic *h = _h(self);
     long pct = PyLong_AsLong(arg);
     if(NULL == h || (-1 == pct && PyErr_Occurred())) return NULL;
-    if(0 > SDL_HapticSetAutocenter(h, (int)pct)) return _raise();
+    if(!SDL_SetHapticAutocenter(h, (int)pct)) return _raise();
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Haptic_Pause(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
     if(NULL == h) return NULL;
-    if(0 > SDL_HapticPause(h)) return _raise();
+    if(!SDL_PauseHaptic(h)) return _raise();
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Haptic_Unpause(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
     if(NULL == h) return NULL;
-    if(0 > SDL_HapticUnpause(h)) return _raise();
+    if(!SDL_ResumeHaptic(h)) return _raise();
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Haptic_StopAll(PySDL_Haptic *self, PyObject *ign) {
     SDL_Haptic *h = _h(self);
     if(NULL == h) return NULL;
-    if(0 > SDL_HapticStopAll(h)) return _raise();
+    if(!SDL_StopHapticEffects(h)) return _raise();
     Py_RETURN_NONE;
 }
 
@@ -274,9 +274,7 @@ static PyObject * PySDL_Haptic_EffectSupported(PySDL_Haptic *self, PyObject *arg
     if(NULL == h) return NULL;
     SDL_HapticEffect effect;
     if(!_dict_to_effect(arg, &effect)) return NULL;
-    int rc = SDL_HapticEffectSupported(h, &effect);
-    if(0 > rc) return _raise();
-    return PyBool_FromLong(rc == true);
+    return PyBool_FromLong(SDL_HapticEffectSupported(h, &effect));
 }
 
 static PyObject * PySDL_Haptic_NewEffect(PySDL_Haptic *self, PyObject *arg) {
@@ -284,7 +282,7 @@ static PyObject * PySDL_Haptic_NewEffect(PySDL_Haptic *self, PyObject *arg) {
     if(NULL == h) return NULL;
     SDL_HapticEffect effect;
     if(!_dict_to_effect(arg, &effect)) return NULL;
-    int id = SDL_HapticNewEffect(h, &effect);
+    int id = SDL_CreateHapticEffect(h, &effect);
     if(0 > id) return _raise();
     return PyLong_FromLong(id);
 }
@@ -298,7 +296,7 @@ static PyObject * PySDL_Haptic_UpdateEffect(PySDL_Haptic *self, PyObject *args) 
     }
     SDL_HapticEffect effect;
     if(!_dict_to_effect(dict, &effect)) return NULL;
-    if(0 > SDL_HapticUpdateEffect(h, effect_id, &effect)) return _raise();
+    if(!SDL_UpdateHapticEffect(h, effect_id, &effect)) return _raise();
     Py_RETURN_NONE;
 }
 
@@ -310,7 +308,7 @@ static PyObject * PySDL_Haptic_RunEffect(PySDL_Haptic *self, PyObject *args, PyO
     if(NULL == h || !PyArg_ParseTupleAndKeywords(args, kwds, "i|I", kwlist, &effect_id, &iterations)) {
         return NULL;
     }
-    if(0 > SDL_HapticRunEffect(h, effect_id, iterations)) return _raise();
+    if(!SDL_RunHapticEffect(h, effect_id, iterations)) return _raise();
     Py_RETURN_NONE;
 }
 
@@ -318,7 +316,7 @@ static PyObject * PySDL_Haptic_StopEffect(PySDL_Haptic *self, PyObject *arg) {
     SDL_Haptic *h = _h(self);
     long effect_id = PyLong_AsLong(arg);
     if(NULL == h || (-1 == effect_id && PyErr_Occurred())) return NULL;
-    if(0 > SDL_HapticStopEffect(h, (int)effect_id)) return _raise();
+    if(!SDL_StopHapticEffect(h, (int)effect_id)) return _raise();
     Py_RETURN_NONE;
 }
 
@@ -326,7 +324,7 @@ static PyObject * PySDL_Haptic_DestroyEffect(PySDL_Haptic *self, PyObject *arg) 
     SDL_Haptic *h = _h(self);
     long effect_id = PyLong_AsLong(arg);
     if(NULL == h || (-1 == effect_id && PyErr_Occurred())) return NULL;
-    SDL_HapticDestroyEffect(h, (int)effect_id);
+    SDL_DestroyHapticEffect(h, (int)effect_id);
     Py_RETURN_NONE;
 }
 
@@ -334,14 +332,12 @@ static PyObject * PySDL_Haptic_GetEffectStatus(PySDL_Haptic *self, PyObject *arg
     SDL_Haptic *h = _h(self);
     long effect_id = PyLong_AsLong(arg);
     if(NULL == h || (-1 == effect_id && PyErr_Occurred())) return NULL;
-    int rc = SDL_HapticGetEffectStatus(h, (int)effect_id);
-    if(0 > rc) return _raise();
-    return PyBool_FromLong(rc);
+    return PyBool_FromLong(SDL_GetHapticEffectStatus(h, (int)effect_id));
 }
 
 static PyObject * PySDL_Haptic_Close(PySDL_Haptic *self, PyObject *ign) {
     if(NULL != self->haptic) {
-        SDL_HapticClose(self->haptic);
+        SDL_CloseHaptic(self->haptic);
         self->haptic = NULL;
     }
     Py_RETURN_NONE;
@@ -352,26 +348,44 @@ static PyObject * PySDL_Haptic_Close(PySDL_Haptic *self, PyObject *ign) {
 //=========================================================
 
 static PyObject * PySDL_NumHaptics(PyObject *self, PyObject *ign) {
-    return PyLong_FromLong(SDL_NumHaptics());
+    int count = 0;
+    SDL_HapticID *ids = SDL_GetHaptics(&count);
+    SDL_free(ids);
+    return PyLong_FromLong(count);
+}
+
+static PyObject * PySDL_GetHaptics(PyObject *self, PyObject *ign) {
+    int count = 0;
+    SDL_HapticID *ids = SDL_GetHaptics(&count);
+    PyObject *list = PyList_New(count);
+    if(NULL == list) {
+        SDL_free(ids);
+        return NULL;
+    }
+    for(int idx = 0; idx < count; ++idx) {
+        PyList_SET_ITEM(list, idx, PyLong_FromUnsignedLong(ids[idx]));
+    }
+    SDL_free(ids);
+    return list;
 }
 
 static PyObject * PySDL_HapticName(PyObject *self, PyObject *arg) {
-    long index = PyLong_AsLong(arg);
-    if(-1 == index && PyErr_Occurred()) {
+    unsigned long id = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == id && PyErr_Occurred()) {
         return NULL;
     }
-    const char *name = SDL_HapticName((int)index);
+    const char *name = SDL_GetHapticNameForID((SDL_HapticID)id);
     return PyUnicode_FromString(name ? name : "");
 }
 
 static PyObject * PySDL_MouseIsHaptic(PyObject *self, PyObject *ign) {
-    return PyBool_FromLong(SDL_MouseIsHaptic() == true);
+    return PyBool_FromLong(SDL_IsMouseHaptic());
 }
 
 static PyObject * PySDL_HapticOpenFromMouse(PyObject *self, PyObject *ign) {
     PySDL_Haptic *wrapper = (PySDL_Haptic *)PySDL_New(&PySDL_Haptic_Type);
     if(NULL == wrapper) return NULL;
-    wrapper->haptic = SDL_HapticOpenFromMouse();
+    wrapper->haptic = SDL_OpenHapticFromMouse();
     if(NULL == wrapper->haptic) {
         Py_DECREF(wrapper);
         return _raise();
@@ -381,20 +395,20 @@ static PyObject * PySDL_HapticOpenFromMouse(PyObject *self, PyObject *ign) {
 
 static PyObject * PySDL_JoystickIsHaptic(PyObject *self, PyObject *arg) {
     if(!PyObject_TypeCheck(arg, &PySDL_Joystick_Type)) {
-        PyErr_SetString(PyExc_TypeError, "expected an SDL2.Joystick");
+        PyErr_SetString(PyExc_TypeError, "expected an SDL3.Joystick");
         return NULL;
     }
-    return PyBool_FromLong(SDL_JoystickIsHaptic(((PySDL_Joystick *)arg)->joystick) == true);
+    return PyBool_FromLong(SDL_IsJoystickHaptic(((PySDL_Joystick *)arg)->joystick));
 }
 
 static PyObject * PySDL_HapticOpenFromJoystick(PyObject *self, PyObject *arg) {
     if(!PyObject_TypeCheck(arg, &PySDL_Joystick_Type)) {
-        PyErr_SetString(PyExc_TypeError, "expected an SDL2.Joystick");
+        PyErr_SetString(PyExc_TypeError, "expected an SDL3.Joystick");
         return NULL;
     }
     PySDL_Haptic *wrapper = (PySDL_Haptic *)PySDL_New(&PySDL_Haptic_Type);
     if(NULL == wrapper) return NULL;
-    wrapper->haptic = SDL_HapticOpenFromJoystick(((PySDL_Joystick *)arg)->joystick);
+    wrapper->haptic = SDL_OpenHapticFromJoystick(((PySDL_Joystick *)arg)->joystick);
     if(NULL == wrapper->haptic) {
         Py_DECREF(wrapper);
         return _raise();
@@ -404,7 +418,9 @@ static PyObject * PySDL_HapticOpenFromJoystick(PyObject *self, PyObject *arg) {
 
 PyMethodDef pysdl_haptic_methods[] = {
     { "NumHaptics",              PySDL_NumHaptics,              METH_NOARGS },
+    { "GetHaptics",              PySDL_GetHaptics,              METH_NOARGS },
     { "HapticName",              PySDL_HapticName,              METH_O      },
+    { "GetHapticNameForID",      PySDL_HapticName,              METH_O      },
     { "MouseIsHaptic",           PySDL_MouseIsHaptic,           METH_NOARGS },
     { "HapticOpenFromMouse",     PySDL_HapticOpenFromMouse,     METH_NOARGS },
     { "JoystickIsHaptic",        PySDL_JoystickIsHaptic,        METH_O      },
