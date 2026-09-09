@@ -54,11 +54,11 @@ def test_peep_events_peek_then_get(sdl, drained):
 
 
 def test_event_state(sdl):
-    previous = sdl.EventState(sdl.MOUSEMOTION, sdl.DISABLE)
+    previous = sdl.EventState(sdl.EVENT_MOUSE_MOTION, 0)
     try:
-        assert sdl.GetEventState(sdl.MOUSEMOTION) == sdl.DISABLE
+        assert sdl.GetEventState(sdl.EVENT_MOUSE_MOTION) is False
     finally:
-        sdl.EventState(sdl.MOUSEMOTION, previous)
+        sdl.EventState(sdl.EVENT_MOUSE_MOTION, previous)
 
 
 def test_wait_event_timeout_returns_none_when_idle(sdl, drained):
@@ -74,9 +74,9 @@ def test_wait_event_timeout_delivers_pushed_event(sdl, drained):
 
 def test_quit_requested(sdl, drained):
     assert sdl.QuitRequested() is False
-    sdl.PushEvent(sdl.QUIT)
+    sdl.PushEvent(sdl.EVENT_QUIT)
     assert sdl.QuitRequested() is True
-    sdl.FlushEvent(sdl.QUIT)
+    sdl.FlushEvent(sdl.EVENT_QUIT)
 
 
 def test_event_filter_drops_and_keeps(sdl, drained):

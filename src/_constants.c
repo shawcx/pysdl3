@@ -1100,4 +1100,10 @@ void _constants(PyObject *module) {
 
 // synthesized (no single SDL3 symbol)
     PyModule_AddIntConstant( module, "INIT_EVERYTHING", SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD );
+    PyModule_AddIntConstant( module, "INIT_GAMECONTROLLER", SDL_INIT_GAMEPAD );
+    PyModule_AddIntConstant( module, "AUDIO_STOPPED", 0 );
+    PyModule_AddIntConstant( module, "AUDIO_PLAYING", 1 );
+    PyModule_AddIntConstant( module, "AUDIO_PAUSED", 2 );
+    PyModule_AddIntConstant( module, "TOUCH_MOUSEID", (long)SDL_TOUCH_MOUSEID );
+    PyModule_AddIntConstant( module, "MOUSE_TOUCHID", (long)SDL_MOUSE_TOUCHID );
 }

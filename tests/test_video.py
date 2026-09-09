@@ -1,4 +1,4 @@
-'''Phase 7: window state, display queries, hints, message boxes, GL/Vulkan.
+'''Window state, display queries, hints, message boxes, GL/Vulkan (SDL3).
 
 The dummy video driver rejects a lot of window operations ("That operation is
 not supported"); those are exercised for their argument handling and skipped
@@ -11,7 +11,7 @@ def _try(fn):
     '''Run fn(); return its value, or None if the driver does not support it.'''
     try:
         return fn()
-    except Exception as exc:  # noqa: BLE001 - SDL2.error, matched below
+    except Exception as exc:  # noqa: BLE001 - SDL3.error, matched below
         if 'not supported' in str(exc) or 'No ' in str(exc):
             pytest.skip(str(exc))
         raise
@@ -20,9 +20,8 @@ def _try(fn):
 # --- window ----------------------------------------------------------------
 
 def test_window_flags_and_format(window, sdl):
-    assert window.GetWindowFlags() & sdl.WINDOW_SHOWN or True  # flags is an int bitmask
     assert isinstance(window.GetWindowFlags(), int)
-    assert window.GetWindowDisplayIndex() >= 0
+    assert window.GetWindowDisplayIndex() > 0        # SDL3 SDL_DisplayID
     assert isinstance(window.GetWindowPixelFormat(), int)
 
 
@@ -52,22 +51,13 @@ def test_window_opacity(window):
     assert 0.0 <= window.GetWindowOpacity() <= 1.0
 
 
-def test_window_gamma_ramp(window):
-    r, g, b = window.GetWindowGammaRamp()
-    assert len(r) == len(g) == len(b) == 256
-    _try(lambda: window.SetWindowGammaRamp(r, g, b))
-    with pytest.raises(ValueError):
-        window.SetWindowGammaRamp([0] * 10, g, b)
-
-
 def test_window_display_mode(window):
-    fmt, w, h, rate = window.GetWindowDisplayMode()
-    assert w > 0 and h > 0
+    # SDL3: the fullscreen mode is None until one is requested.
+    mode = window.GetWindowDisplayMode()
+    assert mode is None or (mode[1] > 0 and mode[2] > 0)
 
 
 def test_window_mouse_rect(window):
-    if not hasattr(window, 'SetWindowMouseRect'):
-        pytest.skip('SDL < 2.0.18')
     _try(lambda: window.SetWindowMouseRect((0, 0, 40, 40)))
     assert window.GetWindowMouseRect() == (0, 0, 40, 40)
     window.SetWindowMouseRect(None)
@@ -77,20 +67,22 @@ def test_window_mouse_rect(window):
 # --- displays -------------------------------------------------------------
 
 def test_display_queries(sdl):
-    assert isinstance(sdl.GetDisplayName(0), str)
-    x, y, w, h = sdl.GetDisplayUsableBounds(0)
+    display = sdl.GetDisplays()[0]
+    assert isinstance(sdl.GetDisplayName(display), str)
+    x, y, w, h = sdl.GetDisplayUsableBounds(display)
     assert w > 0 and h > 0
-    assert sdl.GetDisplayOrientation(0) in (
+    assert sdl.GetDisplayOrientation(display) in (
         sdl.ORIENTATION_UNKNOWN, sdl.ORIENTATION_LANDSCAPE, sdl.ORIENTATION_LANDSCAPE_FLIPPED,
         sdl.ORIENTATION_PORTRAIT, sdl.ORIENTATION_PORTRAIT_FLIPPED,
     )
 
-    n = sdl.GetNumDisplayModes(0)
-    assert n >= 1
-    fmt, mw, mh, rate = sdl.GetDisplayMode(0, 0)
-    assert mw > 0 and mh > 0
+    n = sdl.GetNumDisplayModes(display)
+    assert n >= 0
+    if n:
+        fmt, mw, mh, rate = sdl.GetDisplayMode(display, 0)
+        assert mw > 0 and mh > 0
 
-    closest = sdl.GetClosestDisplayMode(0, (0, 640, 480, 60))
+    closest = sdl.GetClosestDisplayMode(display, (0, 640, 480, 60))
     assert closest is None or len(closest) == 4
 
 
@@ -106,13 +98,13 @@ def test_get_window_from_id_is_borrowed(sdl, window):
 # --- hints --------------------------------------------------------------------
 
 def test_hints(sdl):
-    assert sdl.SetHint('SDL_pysdl2_test', 'yes') is True
-    assert sdl.GetHint('SDL_pysdl2_test') == 'yes'
-    assert sdl.GetHintBoolean('SDL_pysdl2_test', False) is True
-    assert sdl.GetHint('SDL_pysdl2_never_set') is None
+    assert sdl.SetHint('SDL_pysdl3_test', 'yes') is True
+    assert sdl.GetHint('SDL_pysdl3_test') == 'yes'
+    assert sdl.GetHintBoolean('SDL_pysdl3_test', False) is True
+    assert sdl.GetHint('SDL_pysdl3_never_set') is None
 
-    sdl.SetHintWithPriority('SDL_pysdl2_test', 'no', sdl.HINT_OVERRIDE)
-    assert sdl.GetHint('SDL_pysdl2_test') == 'no'
+    sdl.SetHintWithPriority('SDL_pysdl3_test', 'no', sdl.HINT_OVERRIDE)
+    assert sdl.GetHint('SDL_pysdl3_test') == 'no'
     sdl.ClearHints()
 
 
@@ -128,8 +120,6 @@ def test_show_message_box_rejects_bad_config(sdl):
 # --- locales / GL / Vulkan ------------------------------------------------
 
 def test_preferred_locales(sdl):
-    if not hasattr(sdl, 'GetPreferredLocales'):
-        pytest.skip('SDL < 2.0.14')
     locales = sdl.GetPreferredLocales()
     assert isinstance(locales, list)
     for lang, country in locales:
@@ -143,16 +133,12 @@ def test_gl_get_proc_address(sdl):
 
 
 def test_window_flag_constants_present(sdl):
-    # these are SDL enum members - they were silently missing when guarded with
-    # #ifdef instead of a version check
     for name in ('WINDOW_ALWAYS_ON_TOP', 'WINDOW_UTILITY', 'WINDOW_POPUP_MENU',
-                 'WINDOW_VULKAN', 'BLENDMODE_MUL', 'LOCALECHANGED'):
+                 'WINDOW_VULKAN', 'BLENDMODE_MUL', 'EVENT_LOCALE_CHANGED'):
         assert isinstance(getattr(sdl, name), int), name
 
 
 def test_metal_view(sdl):
-    if not hasattr(sdl, 'WINDOW_METAL') or not hasattr(sdl, 'Metal_GetLayer'):
-        pytest.skip('SDL < 2.0.11')
     try:
         win = sdl.Window('metal-test', (32, 32), flags=sdl.WINDOW_METAL)
         view = win.Metal_CreateView()

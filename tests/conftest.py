@@ -17,7 +17,7 @@ _ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def _built_module_dir():
     for path in sorted(glob.glob(str(_ROOT / 'build' / 'lib*'))):
-        if glob.glob(os.path.join(path, 'SDL2*')):
+        if glob.glob(os.path.join(path, 'SDL3*')):
             return path
     return None
 
@@ -34,10 +34,10 @@ if _moddir is not None and _moddir not in sys.path:
 @pytest.fixture(scope='session')
 def sdl():
     '''SDL initialised once for the whole test session.'''
-    import SDL2
-    SDL2.Init(SDL2.INIT_VIDEO | SDL2.INIT_AUDIO | SDL2.INIT_EVENTS | SDL2.INIT_TIMER)
-    yield SDL2
-    SDL2.Quit()
+    import SDL3
+    SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_AUDIO | SDL3.INIT_EVENTS)
+    yield SDL3
+    SDL3.Quit()
 
 
 @pytest.fixture

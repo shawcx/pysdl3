@@ -160,7 +160,12 @@ static PyObject * PySDL_Audio_Open(PySDL_Audio *self, PyObject *args, PyObject *
     }
     (void)deviceName; (void)samples; (void)flags;
 
-    SDL_AudioSpec spec = { (SDL_AudioFormat)format, channels, freq };
+    // A partial spec is filled out; only an all-zero request defers to the device.
+    SDL_AudioSpec spec = {
+        (SDL_AudioFormat)(format ? format : SDL_AUDIO_S16),
+        channels ? channels : 2,
+        freq ? freq : 44100,
+    };
     SDL_AudioSpec *want = (format || channels || freq) ? &spec : NULL;
 
     SDL_AudioStreamCallback cb = NULL;

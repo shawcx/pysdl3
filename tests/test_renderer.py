@@ -49,7 +49,7 @@ def test_draw_blend_mode_roundtrip(renderer, sdl):
     assert renderer.GetRenderDrawBlendMode() == sdl.BLENDMODE_BLEND
 
 
-def test_viewport_clip_scale_logical(renderer):
+def test_viewport_clip_scale_logical(renderer, sdl):
     renderer.RenderSetViewport((0, 0, 32, 24))
     assert renderer.RenderGetViewport() == (0, 0, 32, 24)
     renderer.RenderSetViewport(None)
@@ -66,18 +66,12 @@ def test_viewport_clip_scale_logical(renderer):
     renderer.RenderSetScale(1.0, 1.0)
 
     renderer.RenderSetLogicalSize(100, 80)
-    assert renderer.RenderGetLogicalSize() == (100, 80)
-    renderer.RenderSetLogicalSize(0, 0)
-
-    renderer.RenderSetIntegerScale(True)
-    assert renderer.RenderGetIntegerScale() is True
-    renderer.RenderSetIntegerScale(False)
+    assert renderer.RenderGetLogicalSize()[:2] == (100, 80)
+    renderer.RenderSetLogicalSize(0, 0, sdl.LOGICAL_PRESENTATION_DISABLED)
 
 
 def test_render_target_identity(renderer, sdl):
     assert renderer.GetRenderTarget() is None
-    if not renderer.RenderTargetSupported():
-        pytest.skip('render targets unsupported')
 
     target = sdl.Texture(renderer, sdl.PIXELFORMAT_RGBA8888, sdl.TEXTUREACCESS_TARGET, (16, 16))
     renderer.SetRenderTarget(target)
@@ -96,15 +90,13 @@ def test_read_pixels_length_and_value(renderer):
 
 
 def test_info_and_output_size(renderer):
-    name, flags, formats, max_w, max_h = renderer.GetRendererInfo()
+    name, formats, max_w, max_h = renderer.GetRendererInfo()
     assert isinstance(name, str) and name
     assert isinstance(formats, list)
     assert renderer.GetRendererOutputSize() == (64, 48)
 
 
 def test_render_geometry(renderer, sdl):
-    if not hasattr(renderer, 'RenderGeometry'):
-        pytest.skip('SDL_RenderGeometry needs SDL >= 2.0.18')
     verts = [
         ((0, 0), (255, 0, 0, 255)),
         ((16, 0), (0, 255, 0, 255)),

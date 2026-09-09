@@ -49,11 +49,10 @@ def test_bad_args_raise(sdl):
 
 
 def test_float_rect_helpers(sdl):
-    if not hasattr(sdl, 'IntersectFRect'):
-        pytest.skip('float rect helpers need SDL >= 2.0.22')
     assert sdl.HasIntersectionF((0.0, 0.0, 10.0, 10.0), (5.0, 5.0, 10.0, 10.0)) is True
     assert sdl.IntersectFRect((0, 0, 10, 10), (5, 5, 10, 10)) == (5.0, 5.0, 5.0, 5.0)
     assert sdl.UnionFRect((0, 0, 4, 4), (10, 10, 4, 4)) == (0.0, 0.0, 14.0, 14.0)
     assert sdl.PointInFRect((5.5, 5.5), (0, 0, 10, 10)) is True
-    assert sdl.FRectEmpty((0, 0, 0, 5)) is True
+    # SDL3 SDL_RectEmptyFloat treats only strictly-negative extents as empty.
+    assert sdl.FRectEmpty((0, 0, -1, 5)) is True
     assert sdl.FRectEquals((1, 2, 3, 4), (1, 2, 3, 4)) is True

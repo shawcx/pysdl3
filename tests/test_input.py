@@ -1,4 +1,4 @@
-'''Phase 3: keyboard, text input, mouse module functions.'''
+'''Keyboard, text input, mouse module functions (SDL3).'''
 
 import pytest
 
@@ -13,8 +13,9 @@ def test_key_name_and_code_roundtrip(sdl):
 
 
 def test_key_scancode_conversion(sdl):
-    assert sdl.GetKeyFromScancode(sdl.SCANCODE_A) == sdl.K_a
-    assert sdl.GetScancodeFromKey(sdl.K_a) == sdl.SCANCODE_A
+    # SDL3 keeps only the uppercase SDLK_A name (value is lowercase 'a').
+    assert sdl.GetKeyFromScancode(sdl.SCANCODE_A) == sdl.K_A
+    assert sdl.GetScancodeFromKey(sdl.K_A) == sdl.SCANCODE_A
 
 
 def test_unknown_names(sdl):
@@ -41,24 +42,24 @@ def test_keyboard_focus_and_keystate(sdl):
     assert all(isinstance(k, bool) for k in keys[:10])
 
 
-# --- text input -----------------------------------------------------------
+# --- text input (SDL3: per-window) --------------------------------------------
 
-def test_text_input_lifecycle(sdl):
-    sdl.StartTextInput()
-    assert sdl.IsTextInputActive() is True
-    sdl.SetTextInputRect((0, 0, 100, 20))
-    sdl.SetTextInputRect(None)
-    sdl.StopTextInput()
-    assert sdl.IsTextInputActive() is False
+def test_text_input_lifecycle(sdl, window):
+    sdl.StartTextInput(window)
+    assert sdl.IsTextInputActive(window) is True
+    sdl.SetTextInputArea(window, (0, 0, 100, 20))
+    sdl.SetTextInputArea(window, None)
+    sdl.StopTextInput(window)
+    assert sdl.IsTextInputActive(window) is False
 
 
-# --- mouse --------------------------------------------------------------------
+# --- mouse (SDL3: float coordinates) -----------------------------------------
 
 def test_mouse_state_shapes(sdl):
     for getter in (sdl.GetMouseState, sdl.GetGlobalMouseState, sdl.GetRelativeMouseState):
         buttons, x, y = getter()
         assert isinstance(buttons, int)
-        assert isinstance(x, int) and isinstance(y, int)
+        assert isinstance(x, float) and isinstance(y, float)
 
 
 def test_warp_and_relative_mode(sdl, window):
@@ -66,12 +67,12 @@ def test_warp_and_relative_mode(sdl, window):
     sdl.WarpMouseInWindow(None, 5, 5)
 
     try:
-        sdl.SetRelativeMouseMode(True)
+        sdl.SetRelativeMouseMode(window, True)
     except sdl.error:
         pytest.skip('relative mouse mode unsupported under this driver')
-    assert sdl.GetRelativeMouseMode() is True
-    sdl.SetRelativeMouseMode(False)
-    assert sdl.GetRelativeMouseMode() is False
+    assert sdl.GetRelativeMouseMode(window) is True
+    sdl.SetRelativeMouseMode(window, False)
+    assert sdl.GetRelativeMouseMode(window) is False
 
 
 def test_warp_rejects_non_window(sdl):

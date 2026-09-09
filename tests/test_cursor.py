@@ -7,7 +7,7 @@ import pytest
 @pytest.fixture
 def system_cursor(sdl):
     try:
-        return sdl.Cursor(sdl.SYSTEM_CURSOR_HAND)
+        return sdl.Cursor(sdl.SYSTEM_CURSOR_POINTER)
     except sdl.error:
         pytest.skip('cursors unsupported under this driver')
 

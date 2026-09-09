@@ -2,8 +2,8 @@
 
 
 def test_compiled_and_linked_versions(sdl):
-    assert sdl.Version()[0] == 2
-    assert sdl.GetVersion()[0] == 2
+    assert sdl.Version()[0] == 3
+    assert sdl.GetVersion()[0] == 3
     assert isinstance(sdl.GetRevision(), str)
 
 
@@ -11,7 +11,7 @@ def test_platform_and_cpu(sdl):
     assert sdl.GetPlatform()
     assert sdl.GetCPUCount() >= 1
     assert sdl.GetCPUCacheLineSize() >= 0
-    for name in ('Has3DNow', 'HasAVX', 'HasAVX2', 'HasMMX', 'HasSSE', 'HasSSE2'):
+    for name in ('HasAVX', 'HasAVX2', 'HasSSE', 'HasSSE2', 'HasNEON'):
         assert isinstance(getattr(sdl, name)(), bool)
 
 
@@ -21,7 +21,8 @@ def test_video_driver_is_dummy(sdl):
 
 
 def test_displays_and_renderers(sdl):
-    assert sdl.GetNumVideoDisplays() >= 1
-    flags, w, h, rate = sdl.GetDesktopDisplayMode(0)
+    displays = sdl.GetDisplays()
+    assert len(displays) >= 1
+    fmt, w, h, rate = sdl.GetDesktopDisplayMode(displays[0])
     assert w > 0 and h > 0
     assert sdl.GetNumRenderDrivers() >= 1

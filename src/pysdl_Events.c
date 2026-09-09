@@ -187,11 +187,17 @@ static PyObject * PySDL_PushEvent(PyObject *self, PyObject *args, PyObject *kwds
     event.user.code = code;
     event.user.windowID = windowID;
 
-    if(!SDL_PushEvent(&event)) {
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
+    // SDL3 returns false when a filter drops the event (no error set) as well as
+    // on real failure; surface the former as False, the latter as an exception.
+    bool ok = SDL_PushEvent(&event);
+    if(!ok) {
+        const char *err = SDL_GetError();
+        if(err && err[0]) {
+            PyErr_SetString(pysdl_Error, err);
+            return NULL;
+        }
     }
-    Py_RETURN_TRUE;
+    return PyBool_FromLong(ok);
 }
 
 static PyObject * PySDL_PeepEvents(PyObject *self, PyObject *args) {

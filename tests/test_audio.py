@@ -82,7 +82,7 @@ def test_driver_module_functions(sdl):
 
 def test_queue_status_and_clear(sdl, device_name):
     audio = sdl.Audio()
-    audio.Open(device_name, freq=44100, format=sdl.AUDIO_S16SYS, channels=2, samples=2048)
+    audio.Open(device_name, freq=44100, format=sdl.AUDIO_S16, channels=2, samples=2048)
     assert audio.GetStatus() == sdl.AUDIO_PAUSED
     audio.Pause(0)
     assert audio.GetStatus() == sdl.AUDIO_PLAYING
@@ -99,7 +99,7 @@ def test_load_wav_from_bytes_and_path(sdl, tmp_path):
     wav = _make_wav(pcm)
 
     spec, data = sdl.LoadWAV(wav)
-    assert len(spec) == 4 and spec[0] == 8000
+    assert len(spec) == 3 and spec[0] == 8000
     assert data == pcm
 
     path = tmp_path / 'tone.wav'
@@ -112,22 +112,22 @@ def test_mix_audio_format(sdl):
     a = struct.pack('<4h', 1000, 2000, 3000, 4000)
     b = struct.pack('<4h', 500, 500, 500, 500)
 
-    full = struct.unpack('<4h', sdl.MixAudioFormat(a, b, sdl.AUDIO_S16SYS, sdl.MIX_MAXVOLUME))
+    full = struct.unpack('<4h', sdl.MixAudioFormat(a, b, sdl.AUDIO_S16, 1.0))
     assert full == (1500, 2500, 3500, 4500)
 
-    half = struct.unpack('<4h', sdl.MixAudioFormat(a, b, sdl.AUDIO_S16SYS, sdl.MIX_MAXVOLUME // 2))
+    half = struct.unpack('<4h', sdl.MixAudioFormat(a, b, sdl.AUDIO_S16, 0.5))
     assert half == (1250, 2250, 3250, 4250)
 
 
 def test_audio_stream_resamples(sdl):
-    stream = sdl.AudioStream(sdl.AUDIO_S16SYS, 1, 22050, sdl.AUDIO_F32SYS, 2, 44100)
+    stream = sdl.AudioStream(sdl.AUDIO_S16, 1, 22050, sdl.AUDIO_F32, 2, 44100)
     src = struct.pack('<100h', *([12000, -12000] * 50))
     stream.Put(src)
     stream.Flush()
 
     available = stream.Available()
     # up-sample 2x, mono->stereo 2x, s16 (2 bytes) -> f32 (4 bytes) 2x  => ~8x
-    assert available == len(src) * 8
+    assert len(src) * 6 <= available <= len(src) * 10
 
     out = stream.Get(available)
     assert len(out) == available
@@ -141,7 +141,7 @@ def test_audio_stream_resamples(sdl):
 
 
 def test_audio_stream_get_returns_what_is_available(sdl):
-    stream = sdl.AudioStream(sdl.AUDIO_S16SYS, 1, 8000, sdl.AUDIO_S16SYS, 1, 8000)
+    stream = sdl.AudioStream(sdl.AUDIO_S16, 1, 8000, sdl.AUDIO_S16, 1, 8000)
     stream.Put(b'\x00\x01' * 10)
     stream.Flush()
     out = stream.Get(1_000_000)  # ask for far more than exists

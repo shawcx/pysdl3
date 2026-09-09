@@ -161,6 +161,14 @@ _GEN_BLOCK = re.compile(
 _GEN_EXTRA = [
     ('INIT_EVERYTHING',
      'SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD'),
+    ('INIT_GAMECONTROLLER', 'SDL_INIT_GAMEPAD'),  # SDL2 name kept as an alias
+    # Audio.GetStatus() values (SDL3 dropped the SDL_AudioStatus enum).
+    ('AUDIO_STOPPED', '0'),
+    ('AUDIO_PLAYING', '1'),
+    ('AUDIO_PAUSED',  '2'),
+    # sentinel touch/mouse ids (the (type)-1 #defines the scanner skips)
+    ('TOUCH_MOUSEID', '(long)SDL_TOUCH_MOUSEID'),
+    ('MOUSE_TOUCHID', '(long)SDL_MOUSE_TOUCHID'),
 ]
 
 
