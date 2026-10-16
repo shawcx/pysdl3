@@ -44,6 +44,32 @@ PyTypeObject PySDL_Timer_Type = {
 static PyObject *_timers;            // dict: token -> callable
 static unsigned long long _next_token;
 
+// Shutdown: SDL_Quit tears the other subsystems down before it stops the timer
+// thread, and Remove() doesn't wait for a callback under way, so a callback
+// could still be using SDL (say, pushing an event) while its subsystem is
+// destroyed. Quit / QuitSubSystem hold the timers around SDL
+// (PySDL_TimersHold): meanwhile callbacks skip their Python call, and the
+// hold waits for one already running to finish.
+static int _held;                    // PySDL_TimersHold depth (GIL)
+static SDL_AtomicInt _in_flight;     // callbacks running their Python call
+static unsigned long _in_flight_thread;  // the thread running the latest one (GIL)
+
+void PySDL_TimersHold(void) {
+    ++_held;
+    if(0 == SDL_GetAtomicInt(&_in_flight) || _in_flight_thread == PyThread_get_thread_ident()) {
+        return;  // nothing running, or Quit called from inside a callback: it can't wait for itself
+    }
+    Py_BEGIN_ALLOW_THREADS  // the callback needs the GIL to finish
+        while(SDL_GetAtomicInt(&_in_flight) > 0) {
+            SDL_Delay(1);
+        }
+    Py_END_ALLOW_THREADS
+}
+
+void PySDL_TimersRelease(void) {
+    --_held;
+}
+
 static PyObject * _token_key(void *param) {
     return PyLong_FromUnsignedLongLong((unsigned long long)(uintptr_t)param);
 }
@@ -67,7 +93,15 @@ static Uint32 SDLCALL _timer_callback(void *param, SDL_TimerID timerID, Uint32 i
         PySDL_ThreadLeave(gil);
         return 0;  // removed while this call was pending
     }
+    if(_held) {
+        PySDL_ThreadLeave(gil);
+        return interval;  // Quit / QuitSubSystem under way: skip this tick, touch nothing
+    }
 
+    // Checked and counted under the GIL in one go, so PySDL_TimersHold either
+    // sees this call running or this call sees the hold.
+    SDL_AddAtomicInt(&_in_flight, 1);
+    _in_flight_thread = PyThread_get_thread_ident();
     Py_INCREF(callable);  // Remove() may run from inside the callback
     PyObject *arg = PyLong_FromUnsignedLong(interval);
     PyObject *result = arg ? PyObject_CallFunctionObjArgs(callable, arg, NULL) : NULL;
@@ -90,6 +124,7 @@ static Uint32 SDLCALL _timer_callback(void *param, SDL_TimerID timerID, Uint32 i
         Py_DECREF(result);
     }
 
+    SDL_AddAtomicInt(&_in_flight, -1);
     PySDL_ThreadLeave(gil);
     return next;
 }

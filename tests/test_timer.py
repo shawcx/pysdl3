@@ -178,6 +178,36 @@ def test_quit_while_a_timer_callback_runs(sdl):
     ''')
 
 
+def test_quit_while_a_timer_callback_pushes_events(sdl):
+    '''Regression (phase 13): SDL_Quit tears the event subsystem down before
+    it stops the timer thread, and Remove() doesn't wait for a callback under
+    way, so a callback inside PushEvent could block forever on the watcher
+    lock SDL_Quit had just destroyed (hung on the first run on Linux). Quit
+    now holds Timer callbacks off and waits for one already running.'''
+    _run_script(sdl, '''
+        import time, SDL3
+
+        def busy(event):
+            sum(range(300))
+            return True
+
+        for _ in range(100):
+            SDL3.Init(SDL3.INIT_EVENTS)
+            T = SDL3.RegisterEvents(1)
+            SDL3.AddEventWatch(busy)
+            SDL3.SetEventFilter(busy)
+            timer = SDL3.Timer(1, lambda interval: (SDL3.PushEvent(T, 1), interval)[1])
+            deadline = time.monotonic() + 0.003
+            while time.monotonic() < deadline:
+                SDL3.PushEvent(T, 2)
+            timer.Remove()               # doesn't wait for a callback under way
+            SDL3.SetEventFilter(None)    # contend with it for the watcher lock
+            SDL3.RemoveEventWatch(busy)
+            SDL3.Quit()
+        print('ok')
+    ''')
+
+
 def test_quit_audio_while_its_callback_runs(sdl):
     '''Same cycle through QuitSubSystem(INIT_AUDIO): SDL_QuitAudio closes the
     device while its thread holds it inside the Python playback callback.

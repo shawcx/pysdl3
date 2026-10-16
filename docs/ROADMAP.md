@@ -752,6 +752,17 @@ invalidating wrappers, dropping filter / watcher / hint registrations) happens
 with the GIL held, before and after; other threads must not use SDL while
 these run.
 
+**Timer callbacks are held off during `Quit` / `QuitSubSystem`.** **Bug fix
+(regression test)**: `SDL_Quit` tears the event subsystem (and the rest) down
+before it stops the timer thread, and `Remove()` doesn't wait for a callback
+under way, so a timer callback inside `PushEvent` could block forever on the
+event-watcher mutex `SDL_Quit` had just destroyed while `SDL_QuitTimers`
+waited to join it - the Linux-only hang of the cross-thread events test (2 of
+4 full-suite runs in Debian). `PySDL_TimersHold()` (pysdl_Timer.c) brackets both
+calls: callbacks that fire meanwhile skip their Python call (returning the
+same interval), and the hold first waits, with the GIL released, for one
+already running.
+
 SDL3 differences and skips:
 
 - SDL3 has no `SDL_ClearHints`: `ClearHints` is `ResetHints` (values back to

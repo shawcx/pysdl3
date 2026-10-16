@@ -289,7 +289,8 @@ PyObject * PySDL_New(PyTypeObject *type) {
 // device while SDL_QuitAudio closes it, a virtual joystick's callback holding
 // the joystick lock that init / quit take). The binding's own bookkeeping
 // (what was running, invalidating wrappers) happens with the GIL held, before
-// and after. Other threads must not use SDL while these run.
+// and after. Other threads must not use SDL while these run; the binding's own
+// Timer callbacks are held off meanwhile (PySDL_TimersHold).
 static PyObject * PySDL_Init(PyObject *self, PyObject *args) {
     unsigned int flags = PYSDL_INIT_DEFAULT;
     if(!PyArg_ParseTuple(args, "|I", &flags)) {
@@ -340,9 +341,11 @@ static PyObject * PySDL_QuitSubSystem(PyObject *self, PyObject *arg) {
     // event subsystem, which takes the event filter and watchers with it.
     bool video = NULL != SDL_GetCurrentVideoDriver();
     bool events = 0 != SDL_WasInit(SDL_INIT_EVENTS);
+    PySDL_TimersHold();  // no timer callback may use what this tears down
     Py_BEGIN_ALLOW_THREADS
         SDL_QuitSubSystem((SDL_InitFlags)flags);
     Py_END_ALLOW_THREADS
+    PySDL_TimersRelease();
     if(video) {
         PySDL_CheckVideoGone();
     }
@@ -354,9 +357,11 @@ static PyObject * PySDL_QuitSubSystem(PyObject *self, PyObject *arg) {
 
 static PyObject * PySDL_Quit(PyObject *self, PyObject *ign) {
     bool events = 0 != SDL_WasInit(SDL_INIT_EVENTS);
+    PySDL_TimersHold();  // SDL stops the timer thread only after everything else
     Py_BEGIN_ALLOW_THREADS
         SDL_Quit();
     Py_END_ALLOW_THREADS
+    PySDL_TimersRelease();
     PySDL_InvalidateWindows();  // SDL_Quit destroyed every window, renderer and cursor
     if(events) {
         PySDL_EventWatchesGone();

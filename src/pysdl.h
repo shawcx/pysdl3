@@ -289,6 +289,12 @@ void PySDL_InvalidateCursors(void);   // from PySDL_InvalidateWindows
 void PySDL_EventWatchesGone(void);
 void PySDL_HintCallbacksGone(void);
 
+// Timer callbacks vs. shutdown (pysdl_Timer.c): around SDL_Quit /
+// SDL_QuitSubSystem, timer callbacks skip their Python call, and the hold
+// first waits (GIL released) for one already running. Call with the GIL held.
+void PySDL_TimersHold(void);
+void PySDL_TimersRelease(void);
+
 // Renderer / texture tracking (pysdl_Renderer.c). SDL_DestroyRenderer frees
 // every texture of that renderer, SDL_DestroyWindow destroys the window's
 // renderer, and video shutdown (SDL_QuitRender) frees every renderer; each

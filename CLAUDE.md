@@ -236,7 +236,8 @@ dropping the wrapper, which calls it from `tp_dealloc` — cancels the timer.
 never handed a Python object: its `param` is an integer token, the trampoline
 looks the callable up in a token → callable dict under the GIL, and `Remove()`
 deletes the entry first — a late callback finds nothing and returns 0. (Passing
-the callable itself segfaulted when a timer was dropped mid-callback.)
+the callable itself segfaulted when a timer was dropped mid-callback.) Because
+`Remove()` doesn't wait, `Quit` / `QuitSubSystem` do: see Threading.
 
 `PySDL_Surface` carries a `shouldFree` flag: surfaces it owns (loaded images,
 `CreateSurface`) are `SDL_DestroySurface`d on dealloc; a borrowed surface like
@@ -344,7 +345,11 @@ inside a Python callback waiting for the GIL (`SDL_QuitTimers` joins the timer
 thread, `SDL_QuitAudio` closes devices under their callbacks, joystick init /
 quit take the joystick lock). Their bookkeeping (`PySDL_CheckVideoGone`,
 `PySDL_InvalidateWindows`, the `...Gone()` hooks) runs with the GIL held,
-before and after.
+before and after. `Quit` / `QuitSubSystem` also bracket SDL with
+`PySDL_TimersHold()` / `PySDL_TimersRelease()`: SDL stops the timer thread
+last, so a Timer callback could otherwise still be using a subsystem (pushing
+an event) while it is destroyed; held callbacks skip their Python call, and the
+hold waits for one already running.
 
 New off-main-thread callbacks (timers, event filters) must follow the same
 `PySDL_ThreadEnter` / `PySDL_ThreadLeave` pattern, take their own reference to
