@@ -41,7 +41,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "EVENT_DISPLAY_MOVED",                 SDL_EVENT_DISPLAY_MOVED );
     PyModule_AddIntConstant( module, "EVENT_DISPLAY_ORIENTATION",           SDL_EVENT_DISPLAY_ORIENTATION );
     PyModule_AddIntConstant( module, "EVENT_DISPLAY_REMOVED",               SDL_EVENT_DISPLAY_REMOVED );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "EVENT_DISPLAY_USABLE_BOUNDS_CHANGED", SDL_EVENT_DISPLAY_USABLE_BOUNDS_CHANGED );
+#endif
     PyModule_AddIntConstant( module, "EVENT_DROP_BEGIN",                    SDL_EVENT_DROP_BEGIN );
     PyModule_AddIntConstant( module, "EVENT_DROP_COMPLETE",                 SDL_EVENT_DROP_COMPLETE );
     PyModule_AddIntConstant( module, "EVENT_DROP_FILE",                     SDL_EVENT_DROP_FILE );
@@ -95,9 +97,11 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "EVENT_PEN_PROXIMITY_IN",              SDL_EVENT_PEN_PROXIMITY_IN );
     PyModule_AddIntConstant( module, "EVENT_PEN_PROXIMITY_OUT",             SDL_EVENT_PEN_PROXIMITY_OUT );
     PyModule_AddIntConstant( module, "EVENT_PEN_UP",                        SDL_EVENT_PEN_UP );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "EVENT_PINCH_BEGIN",                   SDL_EVENT_PINCH_BEGIN );
     PyModule_AddIntConstant( module, "EVENT_PINCH_END",                     SDL_EVENT_PINCH_END );
     PyModule_AddIntConstant( module, "EVENT_PINCH_UPDATE",                  SDL_EVENT_PINCH_UPDATE );
+#endif
     PyModule_AddIntConstant( module, "EVENT_POLL_SENTINEL",                 SDL_EVENT_POLL_SENTINEL );
     PyModule_AddIntConstant( module, "EVENT_PRIVATE0",                      SDL_EVENT_PRIVATE0 );
     PyModule_AddIntConstant( module, "EVENT_PRIVATE1",                      SDL_EVENT_PRIVATE1 );
@@ -107,8 +111,10 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "EVENT_RENDER_DEVICE_LOST",            SDL_EVENT_RENDER_DEVICE_LOST );
     PyModule_AddIntConstant( module, "EVENT_RENDER_DEVICE_RESET",           SDL_EVENT_RENDER_DEVICE_RESET );
     PyModule_AddIntConstant( module, "EVENT_RENDER_TARGETS_RESET",          SDL_EVENT_RENDER_TARGETS_RESET );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "EVENT_SCREEN_KEYBOARD_HIDDEN",        SDL_EVENT_SCREEN_KEYBOARD_HIDDEN );
     PyModule_AddIntConstant( module, "EVENT_SCREEN_KEYBOARD_SHOWN",         SDL_EVENT_SCREEN_KEYBOARD_SHOWN );
+#endif
     PyModule_AddIntConstant( module, "EVENT_SENSOR_UPDATE",                 SDL_EVENT_SENSOR_UPDATE );
     PyModule_AddIntConstant( module, "EVENT_SYSTEM_THEME_CHANGED",          SDL_EVENT_SYSTEM_THEME_CHANGED );
     PyModule_AddIntConstant( module, "EVENT_TERMINATING",                   SDL_EVENT_TERMINATING );
@@ -206,12 +212,14 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "ORIENTATION_PORTRAIT",               SDL_ORIENTATION_PORTRAIT );
     PyModule_AddIntConstant( module, "ORIENTATION_PORTRAIT_FLIPPED",       SDL_ORIENTATION_PORTRAIT_FLIPPED );
     PyModule_AddIntConstant( module, "ORIENTATION_UNKNOWN",                SDL_ORIENTATION_UNKNOWN );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "PROGRESS_STATE_ERROR",               SDL_PROGRESS_STATE_ERROR );
     PyModule_AddIntConstant( module, "PROGRESS_STATE_INDETERMINATE",       SDL_PROGRESS_STATE_INDETERMINATE );
     PyModule_AddIntConstant( module, "PROGRESS_STATE_INVALID",             SDL_PROGRESS_STATE_INVALID );
     PyModule_AddIntConstant( module, "PROGRESS_STATE_NONE",                SDL_PROGRESS_STATE_NONE );
     PyModule_AddIntConstant( module, "PROGRESS_STATE_NORMAL",              SDL_PROGRESS_STATE_NORMAL );
     PyModule_AddIntConstant( module, "PROGRESS_STATE_PAUSED",              SDL_PROGRESS_STATE_PAUSED );
+#endif
     PyModule_AddIntConstant( module, "SYSTEM_THEME_DARK",                  SDL_SYSTEM_THEME_DARK );
     PyModule_AddIntConstant( module, "SYSTEM_THEME_LIGHT",                 SDL_SYSTEM_THEME_LIGHT );
     PyModule_AddIntConstant( module, "SYSTEM_THEME_UNKNOWN",               SDL_SYSTEM_THEME_UNKNOWN );
@@ -222,7 +230,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "WINDOW_ALWAYS_ON_TOP",               SDL_WINDOW_ALWAYS_ON_TOP );
     PyModule_AddIntConstant( module, "WINDOW_BORDERLESS",                  SDL_WINDOW_BORDERLESS );
     PyModule_AddIntConstant( module, "WINDOW_EXTERNAL",                    SDL_WINDOW_EXTERNAL );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "WINDOW_FILL_DOCUMENT",               SDL_WINDOW_FILL_DOCUMENT );
+#endif
     PyModule_AddIntConstant( module, "WINDOW_FULLSCREEN",                  SDL_WINDOW_FULLSCREEN );
     PyModule_AddIntConstant( module, "WINDOW_HIDDEN",                      SDL_WINDOW_HIDDEN );
     PyModule_AddIntConstant( module, "WINDOW_HIGH_PIXEL_DENSITY",          SDL_WINDOW_HIGH_PIXEL_DENSITY );
@@ -390,6 +400,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "K_F8",                   SDLK_F8 );
     PyModule_AddIntConstant( module, "K_F9",                   SDLK_F9 );
     PyModule_AddIntConstant( module, "K_FIND",                 SDLK_FIND );
+#if SDL_VERSION_ATLEAST(3, 4, 18)
+    PyModule_AddIntConstant( module, "K_FRONT",                SDLK_FRONT );
+#endif
     PyModule_AddIntConstant( module, "K_G",                    SDLK_G );
     PyModule_AddIntConstant( module, "K_GRAVE",                SDLK_GRAVE );
     PyModule_AddIntConstant( module, "K_GREATER",              SDLK_GREATER );
@@ -640,6 +653,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "SCANCODE_F8",                 SDL_SCANCODE_F8 );
     PyModule_AddIntConstant( module, "SCANCODE_F9",                 SDL_SCANCODE_F9 );
     PyModule_AddIntConstant( module, "SCANCODE_FIND",               SDL_SCANCODE_FIND );
+#if SDL_VERSION_ATLEAST(3, 4, 18)
+    PyModule_AddIntConstant( module, "SCANCODE_FRONT",              SDL_SCANCODE_FRONT );
+#endif
     PyModule_AddIntConstant( module, "SCANCODE_G",                  SDL_SCANCODE_G );
     PyModule_AddIntConstant( module, "SCANCODE_GRAVE",              SDL_SCANCODE_GRAVE );
     PyModule_AddIntConstant( module, "SCANCODE_H",                  SDL_SCANCODE_H );
@@ -825,7 +841,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "PIXELFORMAT_INDEX4MSB",    SDL_PIXELFORMAT_INDEX4MSB );
     PyModule_AddIntConstant( module, "PIXELFORMAT_INDEX8",       SDL_PIXELFORMAT_INDEX8 );
     PyModule_AddIntConstant( module, "PIXELFORMAT_IYUV",         SDL_PIXELFORMAT_IYUV );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "PIXELFORMAT_MJPG",         SDL_PIXELFORMAT_MJPG );
+#endif
     PyModule_AddIntConstant( module, "PIXELFORMAT_NV12",         SDL_PIXELFORMAT_NV12 );
     PyModule_AddIntConstant( module, "PIXELFORMAT_NV21",         SDL_PIXELFORMAT_NV21 );
     PyModule_AddIntConstant( module, "PIXELFORMAT_P010",         SDL_PIXELFORMAT_P010 );
@@ -893,20 +911,28 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "TEXTUREACCESS_STATIC",               SDL_TEXTUREACCESS_STATIC );
     PyModule_AddIntConstant( module, "TEXTUREACCESS_STREAMING",            SDL_TEXTUREACCESS_STREAMING );
     PyModule_AddIntConstant( module, "TEXTUREACCESS_TARGET",               SDL_TEXTUREACCESS_TARGET );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "TEXTURE_ADDRESS_AUTO",               SDL_TEXTURE_ADDRESS_AUTO );
     PyModule_AddIntConstant( module, "TEXTURE_ADDRESS_CLAMP",              SDL_TEXTURE_ADDRESS_CLAMP );
     PyModule_AddIntConstant( module, "TEXTURE_ADDRESS_INVALID",            SDL_TEXTURE_ADDRESS_INVALID );
     PyModule_AddIntConstant( module, "TEXTURE_ADDRESS_WRAP",               SDL_TEXTURE_ADDRESS_WRAP );
+#endif
 
 // SDL_surface.h
     PyModule_AddIntConstant( module, "FLIP_HORIZONTAL",              SDL_FLIP_HORIZONTAL );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "FLIP_HORIZONTAL_AND_VERTICAL", SDL_FLIP_HORIZONTAL_AND_VERTICAL );
+#endif
     PyModule_AddIntConstant( module, "FLIP_NONE",                    SDL_FLIP_NONE );
     PyModule_AddIntConstant( module, "FLIP_VERTICAL",                SDL_FLIP_VERTICAL );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "SCALEMODE_INVALID",            SDL_SCALEMODE_INVALID );
+#endif
     PyModule_AddIntConstant( module, "SCALEMODE_LINEAR",             SDL_SCALEMODE_LINEAR );
     PyModule_AddIntConstant( module, "SCALEMODE_NEAREST",            SDL_SCALEMODE_NEAREST );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "SCALEMODE_PIXELART",           SDL_SCALEMODE_PIXELART );
+#endif
     PyModule_AddIntConstant( module, "SURFACE_LOCKED",               SDL_SURFACE_LOCKED );
     PyModule_AddIntConstant( module, "SURFACE_LOCK_NEEDED",          SDL_SURFACE_LOCK_NEEDED );
     PyModule_AddIntConstant( module, "SURFACE_PREALLOCATED",         SDL_SURFACE_PREALLOCATED );
@@ -991,7 +1017,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "GAMEPAD_BUTTON_TOUCHPAD",                   SDL_GAMEPAD_BUTTON_TOUCHPAD );
     PyModule_AddIntConstant( module, "GAMEPAD_BUTTON_WEST",                       SDL_GAMEPAD_BUTTON_WEST );
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_COUNT",                        SDL_GAMEPAD_TYPE_COUNT );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_GAMECUBE",                     SDL_GAMEPAD_TYPE_GAMECUBE );
+#endif
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT",  SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT );
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR",  SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR );
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT", SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT );
@@ -1000,6 +1028,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_PS4",                          SDL_GAMEPAD_TYPE_PS4 );
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_PS5",                          SDL_GAMEPAD_TYPE_PS5 );
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_STANDARD",                     SDL_GAMEPAD_TYPE_STANDARD );
+#if SDL_VERSION_ATLEAST(3, 4, 18)
+    PyModule_AddIntConstant( module, "GAMEPAD_TYPE_STEAM",                        SDL_GAMEPAD_TYPE_STEAM );
+#endif
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_UNKNOWN",                      SDL_GAMEPAD_TYPE_UNKNOWN );
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_XBOX360",                      SDL_GAMEPAD_TYPE_XBOX360 );
     PyModule_AddIntConstant( module, "GAMEPAD_TYPE_XBOXONE",                      SDL_GAMEPAD_TYPE_XBOXONE );
@@ -1032,7 +1063,9 @@ void _constants(PyObject *module) {
     PyModule_AddIntConstant( module, "SENSOR_ACCEL",   SDL_SENSOR_ACCEL );
     PyModule_AddIntConstant( module, "SENSOR_ACCEL_L", SDL_SENSOR_ACCEL_L );
     PyModule_AddIntConstant( module, "SENSOR_ACCEL_R", SDL_SENSOR_ACCEL_R );
+#if SDL_VERSION_ATLEAST(3, 4, 0)
     PyModule_AddIntConstant( module, "SENSOR_COUNT",   SDL_SENSOR_COUNT );
+#endif
     PyModule_AddIntConstant( module, "SENSOR_GYRO",    SDL_SENSOR_GYRO );
     PyModule_AddIntConstant( module, "SENSOR_GYRO_L",  SDL_SENSOR_GYRO_L );
     PyModule_AddIntConstant( module, "SENSOR_GYRO_R",  SDL_SENSOR_GYRO_R );
