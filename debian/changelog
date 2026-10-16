@@ -1,0 +1,5 @@
+pysdl3 (0.3.0) unstable; urgency=medium
+
+  * Initial Debian packaging with debhelper and pybuild, replacing stdeb.
+
+ -- Matthew Shaw <mshaw.cx@gmail.com>  Fri, 16 Oct 2026 09:27:45 -0400

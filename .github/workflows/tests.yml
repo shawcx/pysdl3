@@ -7,21 +7,31 @@ on:
 jobs:
   debian:
     # GitHub's Ubuntu images have no libsdl3; Debian 13 ships SDL 3.2, the
-    # oldest release the binding targets, with Python 3.13.
-    name: Debian 13 / Python 3.13 (SDL 3.2)
+    # oldest release the binding targets, with Python 3.13. Building the
+    # package (debian/, debhelper + pybuild) runs the test suite too.
+    name: Debian 13 / Python 3.13 (SDL 3.2) - package + tests
     runs-on: ubuntu-latest
     container: debian:trixie
     steps:
-      - name: Install SDL3 and build tools
+      - name: Install packaging tools
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends build-essential pkg-config \
-            python3-dev python3-setuptools python3-pytest libsdl3-dev libsdl3-image-dev
+          apt-get install -y --no-install-recommends build-essential devscripts lintian autopkgtest
       - uses: actions/checkout@v7
-      - name: Build
-        run: python3 setup.py build
-      - name: Test (dummy video / audio drivers)
-        run: python3 -m pytest -q -rs
+      - name: Install build dependencies
+        run: apt-get build-dep -y ./
+      - name: Build package (runs the tests with the dummy drivers)
+        run: dpkg-buildpackage -us -uc -b
+      - name: Lintian
+        run: lintian --pedantic --info --fail-on error,warning ../*.changes
+      - name: autopkgtest (installs the .deb)
+        run: autopkgtest ../python3-sdl3_*.deb . -- null
+      - name: Collect the .deb
+        run: mkdir -p dist && cp ../*.deb dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python3-sdl3-deb
+          path: dist/*.deb
 
   macos:
     name: macOS / Python ${{ matrix.python }} (Homebrew SDL)

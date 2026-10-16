@@ -1,0 +1,3 @@
+Test-Command: cd "$AUTOPKGTEST_TMP" && SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy python3 -c "import SDL3; SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_AUDIO); w = SDL3.Window('t', (32, 32)); r = w.CreateRenderer(); r.Clear(); r.Present(); print(SDL3.__file__, SDL3.GetCurrentVideoDriver()); SDL3.Quit()"
+Depends: python3-sdl3
+Restrictions: allow-stderr

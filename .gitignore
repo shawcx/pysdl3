@@ -1,9 +1,14 @@
 /build
-/deb_dist
-/*.tar.gz
 /dist
-/deb_dist
 /*.egg-info
 /*.tar.gz
 __pycache__/
 .pytest_cache/
+
+# dpkg-buildpackage leftovers (`debian/rules clean` removes them)
+/.pybuild
+/debian/.debhelper
+/debian/python3-sdl3
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.substvars

@@ -25,6 +25,11 @@ Needs Python 3.10+ and SDL 3.2+. Install SDL3, then build into a virtualenv::
     python3 -m venv .venv && . .venv/bin/activate
     pip install .
 
+Or build a Debian package, ``python3-sdl3`` (the ``.deb`` lands in ``../``)::
+
+    sudo apt build-dep .
+    make deb
+
 Example
 -------
 

@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export PYBUILD_NAME=sdl3
+
+# Run the headless suite against the extension pybuild just built:
+# tests/conftest.py imports it from build/lib.* and forces the dummy drivers.
+export PYBUILD_TEST_CUSTOM=1
+export PYBUILD_TEST_ARGS=cd {dir} && {interpreter} -m pytest -q tests
+
+%:
+	dh $@ --buildsystem=pybuild

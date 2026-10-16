@@ -28,8 +28,13 @@ on macOS plain `python3` may be Xcode's 3.9, so create it with Homebrew's):
   `setup.py`) and install the extension
 - `python3 setup.py build` — compile in place under `build/` without installing
 - `python3 -m build` — sdist + wheel into `dist/` (`pip install build`);
-  `MANIFEST.in` bundles `src/` so the Debian package build (`make` → stdeb →
-  `deb_dist`, see `.gitignore`) can compile from it
+  `MANIFEST.in` bundles `src/` into the sdist
+- `make deb` — Debian package `python3-sdl3` via `dpkg-buildpackage -us -uc -b`
+  (needs `sudo apt build-dep .`; the `.deb` lands in `../`). `debian/` is
+  debhelper 13 + pybuild with `pybuild-plugin-pyproject`, native format
+  (version from `debian/changelog` — bump it with `setup.py`); the build runs
+  the test suite, and `debian/tests/control` is an autopkgtest smoke test of
+  the installed package. Replaced stdeb.
 
 `setup.py` probes `pkg-config sdl3 sdl3-image` (seeding `PKG_CONFIG_PATH` with the
 Homebrew keg dirs — SDL3 ships no `sdl3-config`) and always appends `/usr/local`
@@ -55,9 +60,11 @@ does one `Init`/`Quit` per session. Run one file with `python3 -m pytest
 tests/test_audio.py`. In a venv the auto-build needs `setuptools` too
 (`pip install pytest setuptools`).
 
-CI (`.github/workflows/tests.yml`) runs the suite on push / PR in a
-`debian:trixie` container (SDL 3.2, Python 3.13 — GitHub's Ubuntu images have no
-libsdl3) and on macOS with Homebrew SDL at Python 3.10 and 3.14.
+CI (`.github/workflows/tests.yml`) runs on push / PR. In a `debian:trixie`
+container (SDL 3.2, Python 3.13 — GitHub's Ubuntu images have no libsdl3) it
+builds the Debian package (which runs the suite), lints it with lintian, runs
+the autopkgtest and uploads the `.deb` as an artifact; on macOS it runs the
+suite with Homebrew SDL at Python 3.10 and 3.14.
 
 `example/` holds runnable example programs, most of which open a window and need
 a display:
