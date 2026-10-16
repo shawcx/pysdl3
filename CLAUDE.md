@@ -81,6 +81,8 @@ a display:
 - `python3 example/window.py` — window-state playground: border/grab/opacity/flash, message box, display + Vulkan info
 - `python3 example/wav.py [file.wav]` — LoadWAV + AudioStream resample + queue playback
 - `python3 example/rects.py` — live rect intersection / union / enclose / line-clip
+- `python3 example/image.py [file]` — SDL_image: format probes, animations, SVG / XPM,
+  encode to bytes; no window
 - `python3 example/simple.py <image>` — load an image, show it, event loop
 - `python3 example/audio.py` — audio callback + OpenGL visualizer (also needs a `pygl` module)
 - `example/adjust.py` — fullscreen test pattern on every display
@@ -92,7 +94,7 @@ a display:
 `pysdl_util.c`. Every `.c` file includes only this.
 
 - `src/pysdl.c` — module definition and `PyInit_SDL3`. Holds `Init` /
-  `InitSubSystem` / `Quit`, `LoadImage`, display / GL / CPU / audio-device
+  `InitSubSystem` / `Quit`, `LoadBMP`, display / GL / CPU / audio-device
   queries, error / clipboard / screensaver, surface & blend-mode factories.
   `_add_type()` registers each constructible wrapper (and `Gamepad` also gets a
   `GameController` alias).
@@ -118,14 +120,21 @@ a display:
   `pysdl_Video.c` (extra display queries, message boxes, hints, `OpenURL` /
   locales, GL / Vulkan loaders, `GetWindowFromID` / `GetGrabbedWindow`),
   `pysdl_Audio.c` (drivers, `LoadWAV`, `MixAudioFormat`, device-format queries),
-  `pysdl_Rect.c` (rect / point geometry), `pysdl_Cursor.c`, `pysdl_Joystick.c`,
-  `pysdl_Gamepad.c`, `pysdl_Haptic.c`, `pysdl_Sensor.c` do the same for their
-  functions. Use this pattern to add a batch of module functions from a new
-  file.
+  `pysdl_Rect.c` (rect / point geometry), `pysdl_Image.c` (SDL_image:
+  `LoadImage`, `IMG_is*`, `IMG_LoadAnimation` / `IMG_SaveAnimation`, SVG / XPM,
+  `IMG_Version`; also `PySDL_IMG_LoadTexture` behind `Renderer.LoadTexture`),
+  `pysdl_Cursor.c`, `pysdl_Joystick.c`, `pysdl_Gamepad.c`, `pysdl_Haptic.c`,
+  `pysdl_Sensor.c` do the same for their functions. Use this pattern to add a
+  batch of module functions from a new file.
 - `src/pysdl_util.c` — `PySDL_New()` (wrapper allocation), `PySDL_ThreadEnter` /
   `PySDL_ThreadLeave` (GIL handling for SDL-owned threads), and the
   `PyToRect` / `PyToPoint` / `PyToColor` / `PyToFRect` / `PyToFPoint` /
-  `PyToPixel` / `RectToPy` / `PointToPy` converters.
+  `PyToPixel` / `RectToPy` / `PointToPy` converters, plus the `SDL_IOStream`
+  helpers: `PySDL_PathFromObject` (str / os.PathLike -> str path; bytes is
+  never a path), `PySDL_IOFromObject` (a path or any bytes-like -> readable
+  stream; release the returned `Py_buffer` after SDL closes it) and
+  `PySDL_SaveOpen` / `PySDL_SaveClose` (a path or `None` -> file or growable
+  `SDL_IOFromDynamicMem` stream -> `None` or the written `bytes`).
 - `src/_constants.c` — **generated** by `tools/gen_constants.py --generate`;
   `_constants(module)` registers ~1050 SDL3 enum/#define values as module int
   constants. Do not hand-edit: change the header allowlist / blocklist /
@@ -205,9 +214,11 @@ SDL free a surface under a wrapper must detach it first.
 
 ### Threading
 
-Blocking SDL calls (`SDL_LoadBMP`, `IMG_Load`, `SDL_WaitEvent`,
-`SDL_GL_SwapWindow`, `SDL_Delay`) are wrapped in `Py_BEGIN_ALLOW_THREADS` /
-`Py_END_ALLOW_THREADS`. This is **mandatory** for any SDL call that can block on
+Blocking SDL calls (`SDL_LoadBMP_IO`, the `IMG_Load*` / `IMG_is*` loaders and
+probes, `SDL_IOFromFile`, `SDL_WaitEvent`, `SDL_GL_SwapWindow`, `SDL_Delay`) are
+wrapped in `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS`. Saves keep the GIL
+while SDL encodes (only the file open / close drop it), since the encoder reads
+a surface another thread could otherwise free. This is **mandatory** for any SDL call that can block on
 the audio callback thread (`SDL_DestroyAudioStream`, `SDL_LockAudioStream`):
 that thread needs the GIL, so holding it here deadlocks.
 
@@ -263,6 +274,12 @@ in any callback SDL can fire from inside another SDL call.
 - GUIDs cross into Python as 32-char hex strings: `GUIDToPy(SDL_GUID)`, and
   `PyToGUID(obj, &guid)` (accepts that str or the raw 16 bytes; 0 + exception on
   bad input), both in `pysdl_Joystick.c`, declared in `pysdl.h`.
+- Anything that reads a file (`LoadBMP`, `LoadImage`, `Renderer.LoadTexture`,
+  `IMG_*`) takes a path (str / os.PathLike) or the file's bytes through
+  `PySDL_IOFromObject`; a bytes source is pinned only for the call, since SDL
+  reads everything before returning. Anything that writes one
+  (`Surface.Save*`, `IMG_SaveAnimation`) returns `bytes` when no path is given.
+  SDL_image's own functions keep the `IMG_` prefix (`LoadImage` predates that).
 - `PyToPixel(obj, details, palette, &Uint32)` accepts an already-mapped int
   verbatim or maps an `(r,g,b[,a])` sequence through `details` (+ `palette`,
   which may be `NULL`) — used for fill/colour-key.

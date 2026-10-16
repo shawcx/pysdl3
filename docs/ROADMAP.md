@@ -416,6 +416,79 @@ SDL3 differences and skips:
   fixes, the `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS` test fixture is ported; the
   sdl2-compat result inversion does not apply to native SDL3.
 
+## Phase 11 - SDL_image completeness  — DONE
+
+Ported from pysdl2's phase 11, plus its phase-12 `SaveBMP(path=None)` (the
+same stream helper does the work). Tests: `tests/test_image.py` (hand-built
+GIF / TGA / SVG / XPM fixtures; the SDL_image 3.4 parts skip on 3.2); example:
+`example/image.py` (no window, runs headless).
+
+- New `src/pysdl_Image.c` (`pysdl_image_methods`); `LoadImage` moved there
+  from `pysdl.c`. Module functions keep the `IMG_` prefix: `IMG_Version()` ->
+  `(major, minor, micro)` of the loaded library (`IMG_Linked_Version` alias, the
+  pysdl2 name), `IMG_is{AVIF,BMP,CUR,GIF,ICO,JPG,JXL,LBM,PCX,PNG,PNM,QOI,SVG,
+  TIF,WEBP,XCF,XPM,XV}(src)` -> bool, `IMG_LoadSizedSVG(src, w, h)`,
+  `IMG_ReadXPMFromArray(lines)` / `IMG_ReadXPMFromArrayToRGB888(lines)`.
+- `IMG_LoadAnimation(src, type=None)` -> `(w, h, [(Surface, delay_ms), …])`.
+  Frames are moved out of the `IMG_Animation` into owned Surfaces before
+  `IMG_FreeAnimation`, so there is no animation type to manage; a still image
+  comes back as one frame.
+- `LoadImage(src, type=None)` and `Renderer.LoadTexture(src, type=None)` take a
+  path, os.PathLike or any bytes-like. SDL_image detects every format with a
+  magic number from the data, so `type` only matters for magic-less TGA (a path
+  with no type still goes through `IMG_Load(file)`, whose extension names it);
+  that makes the per-format `IMG_Load<FMT>_IO` / `IMG_Load<FMT>Animation_IO`
+  equivalent and they are not exposed separately. `LoadBMP` takes the same
+  sources (it gained os.PathLike and memoryview).
+- `Surface.SavePNG(path=None)` / `SaveJPG(path=None, quality=90)` /
+  `SaveBMP(path=None)` and the new `SaveAVIF(path=None, quality=90)`: with no
+  path they return the encoded `bytes`, written through
+  `SDL_IOFromDynamicMem` (`PySDL_SaveOpen` / `PySDL_SaveClose` in
+  `pysdl_util.c`); paths may be os.PathLike. `SaveBMP` stays `SDL_SaveBMP_IO`
+  (core SDL), not SDL_image 3.4's `IMG_SaveBMP`.
+- Shared `PySDL_IOFromObject` (path or buffer -> `SDL_IOStream`) backs every
+  loader and probe; an empty buffer becomes an empty stream (SDL 3.2's
+  `SDL_IOFromConstMem` rejects size 0), so probes say `False` and loaders raise.
+- SDL_image 3.4 (`SDL_IMAGE_VERSION_ATLEAST(3,4,0)`, tests skip without):
+  `Surface.SaveGIF` / `SaveTGA` / `SaveICO` / `SaveCUR(path=None)`,
+  `SaveWEBP(path=None, quality=90.0)` (a float, as in SDL), `Save(path=None,
+  type=None)` (`IMG_SaveTyped_IO`; the type defaults to the path's extension,
+  as `IMG_Save` does); `IMG_isANI`; `IMG_SaveAnimation(frames, path=None,
+  type=None)` -> `None` or bytes (GIF / WEBP / APNG / AVIF / ANI, the inverse of
+  `IMG_LoadAnimation`: frames must share one size and have delays >= 0; the
+  surfaces are borrowed for the call, GIL held); `IMG_GetClipboardImage()` ->
+  Surface or `None`.
+
+SDL3 differences, fixes and skips:
+
+- SDL3_image has no `IMG_Init` / `IMG_Quit` / `IMG_INIT_*` (dropped in the
+  port, still absent); `IMG_Linked_Version`'s `SDL_version *` became
+  `IMG_Version()`'s packed int, unpacked into the same tuple.
+- `*_RW` -> `*_IO`. SDL_image reads everything during a load call (and closes
+  the stream when asked), so a bytes source is pinned only for the call; no
+  object exposed here keeps an `SDL_IOStream`. `IMG_LoadSizedSVG_IO` and the
+  probes take no `closeio`; the binding closes those streams itself.
+- GIL: dropped for loads, probes and file opens / closes, as before. Saves keep
+  it while encoding (the encoder reads a Surface another thread could free,
+  e.g. a window surface invalidated by a resize).
+- **Bug fix (regression tests)**: SDL_image reads an XPM array without bounds
+  checks — a colour line shorter than `chars_per_pixel + 1` or a pixel row
+  shorter than `width * chars_per_pixel` is read past its end (confirmed under
+  valgrind against Debian's 3.2.4), and before 3.4.4 a one-char pixel with no
+  colour dereferences NULL (Debian's 3.2.4 carries that fix as a patch). The
+  binding now parses the header strictly and checks the line count, lengths and
+  one-char keys first (`ValueError`). pysdl2's port has the same hole.
+- Saving an indexed surface with no palette raises on every version (SDL_image
+  3.4 refuses; 3.2's `IMG_SavePNG_IO` reported success having written nothing).
+  SDL 3.2+ `CreateSurface` gives indexed surfaces no palette until `SetPalette`. Saving an uninitialised
+  Surface raises instead of passing SDL a NULL.
+- Left for later: the SDL_image 3.4 streaming `IMG_AnimationEncoder` /
+  `IMG_AnimationDecoder` objects (they would need wrapper types, and a decoder
+  keeps its `SDL_IOStream` — and so a pinned buffer — open across calls);
+  `IMG_CreateAnimatedCursor` (cursor lifetime vs. its frames needs checking
+  against SDL 3.4's `SDL_CreateAnimatedCursor`); `IMG_LoadGPUTexture*` (no GPU
+  binding); metadata properties (`IMG_PROP_METADATA_*`).
+
 ## Explicitly out of scope
 
 Threads / mutexes / semaphores / condition vars / atomics (use Python's),

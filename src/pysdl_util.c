@@ -193,6 +193,136 @@ PyObject * PySDL_WrapWindow(SDL_Window *window) {
 }
 
 //=========================================================
+// file sources / save destinations  (SDL_IOStream)
+//=========================================================
+
+int PySDL_PathFromObject(PyObject *src, PyObject **path) {
+    *path = NULL;
+    // bytes is the file's contents here, never a path
+    if(!PyUnicode_Check(src) && !PyObject_HasAttrString(src, "__fspath__")) {
+        return 0;
+    }
+    PyObject *fspath = PyOS_FSPath(src);
+    if(NULL == fspath) {
+        return -1;
+    }
+    if(!PyUnicode_Check(fspath)) {
+        Py_DECREF(fspath);
+        PyErr_SetString(PyExc_TypeError, "path must be str (pass bytes for the file's contents)");
+        return -1;
+    }
+    *path = fspath;
+    return 1;
+}
+
+// Open `path` (a str) for SDL with the GIL released; raises on failure.
+static SDL_IOStream * _open_file(PyObject *path, const char *mode) {
+    const char *file = PyUnicode_AsUTF8(path);
+    if(NULL == file) {
+        return NULL;
+    }
+    SDL_IOStream *io;
+    Py_BEGIN_ALLOW_THREADS
+        io = SDL_IOFromFile(file, mode);
+    Py_END_ALLOW_THREADS
+    if(NULL == io) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+    }
+    return io;
+}
+
+SDL_IOStream * PySDL_IOFromObject(PyObject *src, Py_buffer *view) {
+    view->obj = NULL;
+
+    PyObject *path;
+    int is_path = PySDL_PathFromObject(src, &path);
+    if(0 > is_path) {
+        return NULL;
+    }
+    if(is_path) {
+        SDL_IOStream *io = _open_file(path, "rb");
+        Py_DECREF(path);
+        return io;
+    }
+
+    if(0 > PyObject_GetBuffer(src, view, PyBUF_SIMPLE)) {
+        view->obj = NULL;
+        if(PyErr_ExceptionMatches(PyExc_TypeError)) {  // keep e.g. a BufferError's reason
+            PyErr_Format(PyExc_TypeError, "expected a path or the file's bytes, not %.200s",
+                Py_TYPE(src)->tp_name);
+        }
+        return NULL;
+    }
+    // SDL_IOFromConstMem rejects a zero size; an empty dynamic stream reads as EOF.
+    SDL_IOStream *io = (0 < view->len) ? SDL_IOFromConstMem(view->buf, (size_t)view->len)
+                                       : SDL_IOFromDynamicMem();
+    if(NULL == io) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+        PyBuffer_Release(view);  // leaves view->obj NULL
+    }
+    return io;
+}
+
+SDL_IOStream * PySDL_SaveOpen(PyObject *dest, PyObject **path) {
+    *path = NULL;
+    if(Py_None == dest) {
+        SDL_IOStream *io = SDL_IOFromDynamicMem();
+        if(NULL == io) {
+            PyErr_SetString(pysdl_Error, SDL_GetError());
+        }
+        return io;
+    }
+
+    int is_path = PySDL_PathFromObject(dest, path);
+    if(0 >= is_path) {
+        if(0 == is_path) {
+            PyErr_Format(PyExc_TypeError, "path must be str, os.PathLike or None, not %.200s",
+                Py_TYPE(dest)->tp_name);
+        }
+        return NULL;
+    }
+    SDL_IOStream *io = _open_file(*path, "wb");
+    if(NULL == io) {
+        Py_CLEAR(*path);
+    }
+    return io;
+}
+
+PyObject * PySDL_SaveClose(SDL_IOStream *io, PyObject *path, bool ok) {
+    PyObject *result = NULL;
+
+    if(!ok) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());  // before closing can overwrite it
+        SDL_CloseIO(io);
+    } else if(NULL == path) {
+        // A dynamic stream's size is the high-water mark of what SDL wrote.
+        Sint64 size = SDL_GetIOSize(io);
+        const char *data = SDL_GetPointerProperty(SDL_GetIOProperties(io),
+            SDL_PROP_IOSTREAM_DYNAMIC_MEMORY_POINTER, NULL);
+        if(0 > size || (0 < size && NULL == data)) {
+            PyErr_SetString(pysdl_Error, SDL_GetError());
+        } else {
+            result = PyBytes_FromStringAndSize(data, (Py_ssize_t)size);
+        }
+        SDL_CloseIO(io);  // frees the memory
+    } else {
+        bool closed;
+        Py_BEGIN_ALLOW_THREADS
+            closed = SDL_CloseIO(io);  // flushes the file
+        Py_END_ALLOW_THREADS
+        if(!closed) {
+            PyErr_SetString(pysdl_Error, SDL_GetError());
+        } else {
+            Py_INCREF(Py_None);
+            result = Py_None;
+        }
+    }
+
+    Py_XDECREF(path);
+    return result;
+}
+
+//=========================================================
 // wrapper registries
 //=========================================================
 

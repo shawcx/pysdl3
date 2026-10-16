@@ -14,8 +14,9 @@ static PyObject * PySDL_GetCurrentVideoDriver (PyObject*, PyObject*);
 static PyObject * PySDL_GetVideoDrivers       (PyObject*, PyObject*);
 static PyObject * PySDL_GetTicks              (PyObject*, PyObject*);
 static PyObject * PySDL_LoadBMP               (PyObject*, PyObject*);
-static PyObject * PySDL_LoadImage             (PyObject*, PyObject*);
 static PyObject * PySDL_ShowCursor            (PyObject*, PyObject*);
+
+static PyObject * _wrap_surface (SDL_Surface*, Py_buffer*);
 
 static PyObject * PySDL_CreateRGBSurface             (PyObject*, PyObject*, PyObject *);
 static PyObject * PySDL_CreateRGBSurfaceFrom         (PyObject*, PyObject*, PyObject *);
@@ -96,7 +97,6 @@ static PyMethodDef pysdl_PyMethodDefs[] = {
     { "GetVideoDrivers",       PySDL_GetVideoDrivers,       METH_NOARGS  },
     { "GetTicks",              PySDL_GetTicks,              METH_NOARGS  },
     { "LoadBMP",               PySDL_LoadBMP,               METH_O       },
-    { "LoadImage",             PySDL_LoadImage,             METH_O       },
     { "ShowCursor",            PySDL_ShowCursor,            METH_O       },
 
     { "CreateRGBSurface",     (PyCFunction)PySDL_CreateRGBSurface,     METH_VARARGS | METH_KEYWORDS },
@@ -237,7 +237,8 @@ PyMODINIT_FUNC PyInit_SDL3(void) {
         || 0 > PyModule_AddFunctions(module, pysdl_sensor_methods)
         || 0 > PyModule_AddFunctions(module, pysdl_video_methods)
         || 0 > PyModule_AddFunctions(module, pysdl_audio_methods)
-        || 0 > PyModule_AddFunctions(module, pysdl_rect_methods)) {
+        || 0 > PyModule_AddFunctions(module, pysdl_rect_methods)
+        || 0 > PyModule_AddFunctions(module, pysdl_image_methods)) {
         return NULL;
     }
 
@@ -345,54 +346,22 @@ static PyObject * PySDL_GetTicks(PyObject *self, PyObject *ign) {
 }
 
 //=========================================================
-// image / surface loaders  (SDL3: SDL_IOStream, not SDL_RWops)
+// BMP loader  (LoadImage and the rest of SDL_image: pysdl_Image.c)
 //=========================================================
 
-static PyObject * _load_surface(PyObject *arg, int is_image) {
-    PySDL_Surface *wrapper = (PySDL_Surface *)PySDL_New(&PySDL_Surface_Type);
-    if(NULL == wrapper) {
-        return NULL;
-    }
-
-    if(PyBytes_Check(arg) || PyByteArray_Check(arg)) {
-        Py_buffer buffer;
-        if(0 > PyObject_GetBuffer(arg, &buffer, PyBUF_SIMPLE)) {
-            Py_DECREF(wrapper);
-            return NULL;
-        }
-        SDL_IOStream *io = SDL_IOFromConstMem(buffer.buf, (size_t)buffer.len);
-        if(NULL != io) {
-            Py_BEGIN_ALLOW_THREADS
-                wrapper->surface = is_image ? IMG_Load_IO(io, true) : SDL_LoadBMP_IO(io, true);
-            Py_END_ALLOW_THREADS
-        }
-        PyBuffer_Release(&buffer);
-    } else {
-        const char *path = PyUnicode_AsUTF8(arg);
-        if(NULL == path) {
-            Py_DECREF(wrapper);
-            return NULL;
-        }
-        Py_BEGIN_ALLOW_THREADS
-            wrapper->surface = is_image ? IMG_Load(path) : SDL_LoadBMP(path);
-        Py_END_ALLOW_THREADS
-    }
-
-    if(NULL == wrapper->surface) {
-        Py_DECREF(wrapper);
-        PyErr_SetString(pysdl_Error, SDL_GetError());
-        return NULL;
-    }
-
-    return (PyObject *)wrapper;
-}
-
+// Takes a path (str / os.PathLike) or the file's bytes.
 static PyObject * PySDL_LoadBMP(PyObject *self, PyObject *arg) {
-    return _load_surface(arg, 0);
-}
-
-static PyObject * PySDL_LoadImage(PyObject *self, PyObject *arg) {
-    return _load_surface(arg, 1);
+    Py_buffer view;
+    SDL_IOStream *io = PySDL_IOFromObject(arg, &view);
+    if(NULL == io) {
+        return NULL;
+    }
+    SDL_Surface *surface;
+    Py_BEGIN_ALLOW_THREADS
+        surface = SDL_LoadBMP_IO(io, true);
+    Py_END_ALLOW_THREADS
+    PyBuffer_Release(&view);
+    return _wrap_surface(surface, NULL);
 }
 
 static PyObject * PySDL_ShowCursor(PyObject *self, PyObject *args) {

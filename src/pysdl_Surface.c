@@ -5,9 +5,18 @@ static void       PySDL_Surface_Type_dealloc (PySDL_Surface*);
 
 static PyObject * PySDL_Surface_LockSurface   (PySDL_Surface*, PyObject*);
 static PyObject * PySDL_Surface_UnlockSurface (PySDL_Surface*, PyObject*);
-static PyObject * PySDL_Surface_SaveBMP       (PySDL_Surface*, PyObject*);
-static PyObject * PySDL_Surface_SavePNG       (PySDL_Surface*, PyObject*);
+static PyObject * PySDL_Surface_SaveBMP       (PySDL_Surface*, PyObject*, PyObject*);
+static PyObject * PySDL_Surface_SavePNG       (PySDL_Surface*, PyObject*, PyObject*);
 static PyObject * PySDL_Surface_SaveJPG       (PySDL_Surface*, PyObject*, PyObject*);
+static PyObject * PySDL_Surface_SaveAVIF      (PySDL_Surface*, PyObject*, PyObject*);
+#if SDL_IMAGE_VERSION_ATLEAST(3,4,0)
+static PyObject * PySDL_Surface_SaveGIF       (PySDL_Surface*, PyObject*, PyObject*);
+static PyObject * PySDL_Surface_SaveTGA       (PySDL_Surface*, PyObject*, PyObject*);
+static PyObject * PySDL_Surface_SaveICO       (PySDL_Surface*, PyObject*, PyObject*);
+static PyObject * PySDL_Surface_SaveCUR       (PySDL_Surface*, PyObject*, PyObject*);
+static PyObject * PySDL_Surface_SaveWEBP      (PySDL_Surface*, PyObject*, PyObject*);
+static PyObject * PySDL_Surface_Save          (PySDL_Surface*, PyObject*, PyObject*);
+#endif
 
 static PyObject * PySDL_Surface_Blit          (PySDL_Surface*, PyObject*, PyObject*);
 static PyObject * PySDL_Surface_BlitScaled    (PySDL_Surface*, PyObject*, PyObject*);
@@ -38,9 +47,18 @@ static PyObject * PySDL_Surface_Duplicate     (PySDL_Surface*, PyObject*);
 static PyMethodDef PySDL_Surface_methods[] = {
     { "LockSurface",    (PyCFunction)PySDL_Surface_LockSurface,    METH_NOARGS  },
     { "UnlockSurface",  (PyCFunction)PySDL_Surface_UnlockSurface,  METH_NOARGS  },
-    { "SaveBMP",        (PyCFunction)PySDL_Surface_SaveBMP,        METH_O       },
-    { "SavePNG",        (PyCFunction)PySDL_Surface_SavePNG,        METH_O       },
+    { "SaveBMP",        (PyCFunction)PySDL_Surface_SaveBMP,        METH_VARARGS | METH_KEYWORDS },
+    { "SavePNG",        (PyCFunction)PySDL_Surface_SavePNG,        METH_VARARGS | METH_KEYWORDS },
     { "SaveJPG",        (PyCFunction)PySDL_Surface_SaveJPG,        METH_VARARGS | METH_KEYWORDS },
+    { "SaveAVIF",       (PyCFunction)PySDL_Surface_SaveAVIF,       METH_VARARGS | METH_KEYWORDS },
+#if SDL_IMAGE_VERSION_ATLEAST(3,4,0)
+    { "SaveGIF",        (PyCFunction)PySDL_Surface_SaveGIF,        METH_VARARGS | METH_KEYWORDS },
+    { "SaveTGA",        (PyCFunction)PySDL_Surface_SaveTGA,        METH_VARARGS | METH_KEYWORDS },
+    { "SaveICO",        (PyCFunction)PySDL_Surface_SaveICO,        METH_VARARGS | METH_KEYWORDS },
+    { "SaveCUR",        (PyCFunction)PySDL_Surface_SaveCUR,        METH_VARARGS | METH_KEYWORDS },
+    { "SaveWEBP",       (PyCFunction)PySDL_Surface_SaveWEBP,       METH_VARARGS | METH_KEYWORDS },
+    { "Save",           (PyCFunction)PySDL_Surface_Save,           METH_VARARGS | METH_KEYWORDS },
+#endif
 
     { "Blit",           (PyCFunction)PySDL_Surface_Blit,           METH_VARARGS | METH_KEYWORDS },
     { "BlitScaled",     (PyCFunction)PySDL_Surface_BlitScaled,     METH_VARARGS | METH_KEYWORDS },
@@ -219,41 +237,147 @@ static PyObject * PySDL_Surface_UnlockSurface(PySDL_Surface *self, PyObject *ign
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_Surface_SaveBMP(PySDL_Surface *self, PyObject *arg) {
-    const char *path = PyUnicode_AsUTF8(arg);
-    if(NULL == path) {
+// SaveBMP / SavePNG / SaveJPG / ... (path=None[, quality]): write the file at
+// `path` (str / os.PathLike), or with no path return the encoded image as
+// bytes. SDL writes into a file stream or a growable in-memory one
+// (PySDL_SaveOpen / PySDL_SaveClose); the GIL is held while it encodes so
+// nothing can free the surface under it. SDL_image 3.4 adds GIF / TGA / ICO /
+// CUR / WEBP and Save(path=None, type=None), which picks the format by name.
+enum { SAVE_BMP, SAVE_PNG, SAVE_JPG, SAVE_AVIF, SAVE_GIF, SAVE_TGA, SAVE_ICO, SAVE_CUR, SAVE_WEBP, SAVE_TYPED };
+
+static PyObject * _save(PySDL_Surface *self, PyObject *dest, int kind, double quality, const char *type) {
+    SDL_Surface *s = self->surface;
+    if(NULL == s) {
+        PyErr_SetString(pysdl_Error, "Surface is not initialised");
         return NULL;
     }
-    if(!SDL_SaveBMP(self->surface, path)) {
-        return _raise();
+    // SDL_image 3.4 checks this itself; 3.2's PNG writer "succeeds" writing nothing.
+    if(SDL_ISPIXELFORMAT_INDEXED(s->format) && NULL == SDL_GetSurfacePalette(s)) {
+        PyErr_SetString(pysdl_Error, "Indexed surfaces must have a palette");
+        return NULL;
     }
-    Py_RETURN_NONE;
+    PyObject *path;
+    SDL_IOStream *io = PySDL_SaveOpen(dest, &path);
+    if(NULL == io) {
+        return NULL;
+    }
+
+    bool ok = false;
+    switch(kind) {
+    case SAVE_BMP:   ok = SDL_SaveBMP_IO(s, io, false);                    break;
+    case SAVE_PNG:   ok = IMG_SavePNG_IO(s, io, false);                    break;
+    case SAVE_JPG:   ok = IMG_SaveJPG_IO(s, io, false, (int)quality);      break;
+    case SAVE_AVIF:  ok = IMG_SaveAVIF_IO(s, io, false, (int)quality);     break;
+#if SDL_IMAGE_VERSION_ATLEAST(3,4,0)
+    case SAVE_GIF:   ok = IMG_SaveGIF_IO(s, io, false);                    break;
+    case SAVE_TGA:   ok = IMG_SaveTGA_IO(s, io, false);                    break;
+    case SAVE_ICO:   ok = IMG_SaveICO_IO(s, io, false);                    break;
+    case SAVE_CUR:   ok = IMG_SaveCUR_IO(s, io, false);                    break;
+    case SAVE_WEBP:  ok = IMG_SaveWEBP_IO(s, io, false, (float)quality);   break;
+    case SAVE_TYPED: ok = IMG_SaveTyped_IO(s, io, false, type);            break;
+#endif
+    }
+    return PySDL_SaveClose(io, path, ok);
 }
 
-static PyObject * PySDL_Surface_SavePNG(PySDL_Surface *self, PyObject *arg) {
-    const char *path = PyUnicode_AsUTF8(arg);
-    if(NULL == path) {
+// (path=None)
+static PyObject * _save_plain(PySDL_Surface *self, PyObject *args, PyObject *kwds, int kind) {
+    PyObject *dest = Py_None;
+    static char *kwlist[] = {"path", NULL};
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "|O", kwlist, &dest)) {
         return NULL;
     }
-    if(!IMG_SavePNG(self->surface, path)) {
-        return _raise();
+    return _save(self, dest, kind, 0, NULL);
+}
+
+// (path=None, quality=90): an int 0-100, a float for WEBP
+static PyObject * _save_quality(PySDL_Surface *self, PyObject *args, PyObject *kwds, int kind) {
+    PyObject *dest = Py_None;
+    int quality = 90;
+    float fquality = 90.0f;
+    static char *kwlist[] = {"path", "quality", NULL};
+    if(SAVE_WEBP == kind
+        ? !PyArg_ParseTupleAndKeywords(args, kwds, "|Of", kwlist, &dest, &fquality)
+        : !PyArg_ParseTupleAndKeywords(args, kwds, "|Oi", kwlist, &dest, &quality)) {
+        return NULL;
     }
-    Py_RETURN_NONE;
+    return _save(self, dest, kind, (SAVE_WEBP == kind) ? fquality : quality, NULL);
+}
+
+static PyObject * PySDL_Surface_SaveBMP(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_plain(self, args, kwds, SAVE_BMP);
+}
+
+static PyObject * PySDL_Surface_SavePNG(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_plain(self, args, kwds, SAVE_PNG);
 }
 
 static PyObject * PySDL_Surface_SaveJPG(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
-    const char *path;
-    int quality = 90;
+    return _save_quality(self, args, kwds, SAVE_JPG);
+}
 
-    static char *kwlist[] = {"path", "quality", NULL};
-    if(!PyArg_ParseTupleAndKeywords(args, kwds, "s|i", kwlist, &path, &quality)) {
+static PyObject * PySDL_Surface_SaveAVIF(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_quality(self, args, kwds, SAVE_AVIF);
+}
+
+#if SDL_IMAGE_VERSION_ATLEAST(3,4,0)
+static PyObject * PySDL_Surface_SaveGIF(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_plain(self, args, kwds, SAVE_GIF);
+}
+
+static PyObject * PySDL_Surface_SaveTGA(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_plain(self, args, kwds, SAVE_TGA);
+}
+
+static PyObject * PySDL_Surface_SaveICO(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_plain(self, args, kwds, SAVE_ICO);
+}
+
+static PyObject * PySDL_Surface_SaveCUR(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_plain(self, args, kwds, SAVE_CUR);
+}
+
+static PyObject * PySDL_Surface_SaveWEBP(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    return _save_quality(self, args, kwds, SAVE_WEBP);
+}
+
+// Save(path=None, type=None): `type` ("PNG", "JPG", "WEBP", ...) defaults to
+// the path's extension, as IMG_Save does; quality-taking formats use 90.
+static PyObject * PySDL_Surface_Save(PySDL_Surface *self, PyObject *args, PyObject *kwds) {
+    PyObject *dest = Py_None;
+    const char *type = NULL;
+    static char *kwlist[] = {"path", "type", NULL};
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "|Oz", kwlist, &dest, &type)) {
         return NULL;
     }
-    if(!IMG_SaveJPG(self->surface, path, quality)) {
-        return _raise();
+    if(NULL != type) {
+        return _save(self, dest, SAVE_TYPED, 0, type);
     }
-    Py_RETURN_NONE;
+    if(Py_None == dest) {
+        PyErr_SetString(PyExc_TypeError, "Save() needs a type when no path is given");
+        return NULL;
+    }
+
+    PyObject *path;
+    int is_path = PySDL_PathFromObject(dest, &path);
+    if(0 >= is_path) {
+        if(0 == is_path) {
+            PyErr_SetString(PyExc_TypeError, "path must be str, os.PathLike or None");
+        }
+        return NULL;
+    }
+    PyObject *result = NULL;
+    const char *file = PyUnicode_AsUTF8(path);
+    const char *ext = file ? SDL_strrchr(file, '.') : NULL;
+    if(file && !ext) {
+        PyErr_SetString(PyExc_ValueError, "the path has no extension: pass type");
+    } else if(file) {
+        result = _save(self, path, SAVE_TYPED, 0, ext + 1);  // `path` keeps `ext` alive
+    }
+    Py_DECREF(path);
+    return result;
 }
+#endif
 
 //=========================================================
 // blitting

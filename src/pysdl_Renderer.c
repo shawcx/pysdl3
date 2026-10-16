@@ -4,7 +4,7 @@ static int        PySDL_Renderer_Type_init    (PySDL_Renderer*, PyObject*, PyObj
 static void       PySDL_Renderer_Type_dealloc (PySDL_Renderer*);
 
 static PyObject * PySDL_Renderer_CreateTextureFromSurface (PySDL_Renderer*, PyObject*);
-static PyObject * PySDL_Renderer_LoadTexture              (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_LoadTexture              (PySDL_Renderer*, PyObject*, PyObject*);
 
 static PyObject * PySDL_Renderer_Clear             (PySDL_Renderer*, PyObject*);
 static PyObject * PySDL_Renderer_Present           (PySDL_Renderer*, PyObject*);
@@ -47,7 +47,7 @@ static PyObject * PySDL_Renderer_GetRendererOutputSize (PySDL_Renderer*, PyObjec
 
 static PyMethodDef PySDL_Renderer_methods[] = {
     { "CreateTextureFromSurface", (PyCFunction)PySDL_Renderer_CreateTextureFromSurface, METH_O       },
-    { "LoadTexture",              (PyCFunction)PySDL_Renderer_LoadTexture,              METH_O       },
+    { "LoadTexture",              (PyCFunction)PySDL_Renderer_LoadTexture,              METH_VARARGS | METH_KEYWORDS },
 
     { "Clear",                    (PyCFunction)PySDL_Renderer_Clear,                    METH_NOARGS  },
     { "Present",                  (PyCFunction)PySDL_Renderer_Present,                  METH_NOARGS  },
@@ -230,28 +230,27 @@ static PyObject * PySDL_Renderer_CreateTextureFromSurface(PySDL_Renderer *self, 
     return (PyObject *)pysdl_Texture;
 }
 
-static PyObject * PySDL_Renderer_LoadTexture(PySDL_Renderer *self, PyObject *arg) {
-    const char *path = PyUnicode_AsUTF8(arg);
-    if(NULL == path) {
+// LoadTexture(src, type=None): `src` is a path (str / os.PathLike) or the
+// file's bytes; `type` names a magic-less format ("TGA"), as for LoadImage.
+static PyObject * PySDL_Renderer_LoadTexture(PySDL_Renderer *self, PyObject *args, PyObject *kwds) {
+    PyObject *src;
+    const char *type = NULL;
+    static char *kwlist[] = {"src", "type", NULL};
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "O|z", kwlist, &src, &type)) {
         return NULL;
     }
 
-    PySDL_Texture *pysdl_Texture = (PySDL_Texture *)PySDL_New(&PySDL_Texture_Type);
-    if(NULL == pysdl_Texture) {
+    SDL_Texture *texture = PySDL_IMG_LoadTexture(self->renderer, src, type);
+    if(NULL == texture) {
         return NULL;
     }
-
-    Py_BEGIN_ALLOW_THREADS
-        pysdl_Texture->texture = IMG_LoadTexture(self->renderer, path);
-    Py_END_ALLOW_THREADS
-
-    if(NULL == pysdl_Texture->texture) {
-        Py_DECREF(pysdl_Texture);
-        PyErr_SetString(pysdl_Error, SDL_GetError());
+    PySDL_Texture *wrapper = (PySDL_Texture *)PySDL_New(&PySDL_Texture_Type);
+    if(NULL == wrapper) {
+        SDL_DestroyTexture(texture);
         return NULL;
     }
-
-    return (PyObject *)pysdl_Texture;
+    wrapper->texture = texture;
+    return (PyObject *)wrapper;
 }
 
 //=========================================================

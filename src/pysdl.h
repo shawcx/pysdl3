@@ -137,6 +137,12 @@ extern PyMethodDef pysdl_sensor_methods[];          // pysdl_Sensor.c
 extern PyMethodDef pysdl_video_methods[];           // pysdl_Video.c   (display / messagebox / hints / vulkan / metal)
 extern PyMethodDef pysdl_audio_methods[];           // pysdl_Audio.c   (drivers / LoadWAV / mixing)
 extern PyMethodDef pysdl_rect_methods[];            // pysdl_Rect.c    (rect / point math)
+extern PyMethodDef pysdl_image_methods[];           // pysdl_Image.c   (SDL_image loaders / probes / animation)
+
+// SDL_image texture loading shared with Renderer.LoadTexture (pysdl_Image.c):
+// `src` is a path or the file's bytes, `type` names a magic-less format
+// ("TGA") or is NULL. NULL with an exception set on failure.
+SDL_Texture * PySDL_IMG_LoadTexture(SDL_Renderer *renderer, PyObject *src, const char *type);
 
 //=========================================================
 // Helpers (pysdl_util.c)
@@ -170,6 +176,29 @@ PyObject * PointToPy(const SDL_Point *point);   // -> (x, y)
 
 // Wrap a window SDL still owns as a non-freeing SDL3.Window, or None for NULL.
 PyObject * PySDL_WrapWindow(SDL_Window *window);
+
+// File sources: anything that reads a file takes a path (str / os.PathLike)
+// or the file's contents (any bytes-like).
+//
+// 1 and a new str reference in *path if `src` is a path, 0 if it is not (so
+// it is the contents), -1 with an exception set (e.g. a bytes os.PathLike).
+int PySDL_PathFromObject(PyObject *src, PyObject **path);
+
+// A readable SDL_IOStream over `src`: a path is opened as a file (GIL
+// released for the open), contents are read in place and pinned by `view`.
+// Call PyBuffer_Release(view) once SDL has closed the stream (a no-op for a
+// file, where view->obj stays NULL). NULL with an exception set on failure.
+SDL_IOStream * PySDL_IOFromObject(PyObject *src, Py_buffer *view);
+
+// Save* destinations: `dest` is a path (str / os.PathLike) or None for "return
+// the bytes". PySDL_SaveOpen sets *path to the path as a new str reference
+// (NULL for None) and returns a stream writing that file, or a growable
+// in-memory stream; NULL with an exception set on failure. PySDL_SaveClose
+// closes it after SDL wrote to it (`ok` = the writer's result) and returns
+// None (file) or the written bytes (memory), or raises SDL's error; it
+// releases `path` either way.
+SDL_IOStream * PySDL_SaveOpen(PyObject *dest, PyObject **path);
+PyObject     * PySDL_SaveClose(SDL_IOStream *io, PyObject *path, bool ok);
 
 // A set of *borrowed* wrapper pointers: each wrapper adds itself when it takes
 // an SDL object and removes itself in tp_dealloc, so the set never holds a
