@@ -7,16 +7,14 @@ import SDL3
 # Initialize SDL3
 SDL3.Init(SDL3.INIT_VIDEO)
 
-numberOfDisplays = SDL3.GetNumVideoDisplays()
-
 windows = []
-for i in range(numberOfDisplays):
-    x,y,w,h = SDL3.GetDisplayBounds(i)
+for display in SDL3.GetDisplays():
+    x,y,w,h = SDL3.GetDisplayBounds(display)
     window = SDL3.Window("Adjust", size=(w,h), position=(x,y), flags=SDL3.WINDOW_FULLSCREEN)
     windows.append((window, w, h))
 
 # Hide the cursor
-SDL3.ShowCursor(SDL3.DISABLE)
+SDL3.ShowCursor(False)
 
 white = b'\xff\xff\xff\x00'
 black = b'\x00\x00\x00\x00'
@@ -37,5 +35,5 @@ while True:
             break
 
 # Show the cursor
-SDL3.ShowCursor(SDL3.ENABLE)
+SDL3.ShowCursor(True)
 SDL3.Quit()

@@ -8,7 +8,7 @@
 import math
 import SDL3
 
-SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_TIMER | SDL3.INIT_EVENTS)
+SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_EVENTS)
 
 W, H = 400, 400
 window = SDL3.Window('timer', (W, H))

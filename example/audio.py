@@ -106,10 +106,10 @@ def main():
     SDL3.GL_SetAttribute(SDL3.GL_CONTEXT_MAJOR_VERSION, 2);
     SDL3.GL_SetAttribute(SDL3.GL_CONTEXT_MINOR_VERSION, 1);
 
-    flags,width,height,rate = SDL3.GetDesktopDisplayMode(0)
+    flags,width,height,rate = SDL3.GetDesktopDisplayMode(SDL3.GetDisplays()[0])
     print('  ', f'Display Mode: {width}x{height} @ {rate}Hz')
 
-    dc = SDL3.Window("Audio", size=(width,height), flags=SDL3.WINDOW_OPENGL | SDL3.WINDOW_FULLSCREEN_DESKTOP)
+    dc = SDL3.Window("Audio", size=(width,height), flags=SDL3.WINDOW_OPENGL | SDL3.WINDOW_FULLSCREEN)
     dc.GL_CreateContext()
     dc.GL_MakeCurrent()
     GL.glewInit()
@@ -157,7 +157,7 @@ def main():
 
     name = SDL3.GetAudioDeviceName(index)
     print('Opening', name )
-    audio = SDL3.Audio()
+    audio = Audio()
     audio.Open(name)
 
     points = 1
@@ -223,7 +223,7 @@ def main():
                     else:
                         audio.generators[1].amplify(0)
 
-                if SDL3.K_n == data[2]:
+                if SDL3.K_N == data[2]:
                     if audio.generators[2].amp == -1:
                         audio.generators[2].amplify(0.3)
                     else:

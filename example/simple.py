@@ -49,7 +49,7 @@ while not quit:
             if SDL3.K_ESCAPE == data[2]:
                 quit = True
                 break
-            if SDL3.K_h == data[2]:
+            if SDL3.K_H == data[2]:
                 window.HideWindow()
                 break
             if SDL3.K_M == data[2]:

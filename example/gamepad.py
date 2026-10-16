@@ -4,50 +4,48 @@
 # move sticks and press buttons to see live events. Ctrl-C to quit.
 #
 # With no real device, pass --virtual to attach a virtual joystick and drive it
-# with the number keys 0-5 (needs SDL >= 2.0.14).
+# with the number keys 0-5.
 
 import sys
 import SDL3
 
-SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_JOYSTICK | SDL3.INIT_GAMECONTROLLER)
+SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_JOYSTICK | SDL3.INIT_GAMEPAD)
 
 AXIS_NAMES = {
     SDL3.GAMEPAD_AXIS_LEFTX: 'LeftX', SDL3.GAMEPAD_AXIS_LEFTY: 'LeftY',
     SDL3.GAMEPAD_AXIS_RIGHTX: 'RightX', SDL3.GAMEPAD_AXIS_RIGHTY: 'RightY',
-    SDL3.GAMEPAD_AXIS_TRIGGERLEFT: 'TrigL', SDL3.GAMEPAD_AXIS_TRIGGERRIGHT: 'TrigR',
+    SDL3.GAMEPAD_AXIS_LEFT_TRIGGER: 'TrigL', SDL3.GAMEPAD_AXIS_RIGHT_TRIGGER: 'TrigR',
 }
 
 window = SDL3.Window('gamepad', (360, 120))
 
-controllers = {}   # instance id -> GameController
+controllers = {}   # instance id -> Gamepad
 joysticks = {}     # instance id -> Joystick
 
 
-def add_device(device_index):
-    if SDL3.IsGameController(device_index):
-        gc = SDL3.Gamepad(device_index)
-        iid = gc.GetJoystick().InstanceID()
-        if iid in controllers:
-            return
+def add_device(iid):
+    # A gamepad sends both JOYSTICK_ADDED and GAMEPAD_ADDED; open it once.
+    if iid in controllers or iid in joysticks:
+        return
+    if SDL3.IsGamepad(iid):
+        gc = SDL3.Gamepad(iid)
         controllers[iid] = gc
-        print(f'+ controller {iid}: {gc.Name()!r}')
+        print(f'+ gamepad {iid}: {gc.Name()!r}')
     else:
-        js = SDL3.Joystick(device_index)
-        if js.InstanceID() in joysticks:
-            return
-        joysticks[js.InstanceID()] = js
-        print(f'+ joystick {js.InstanceID()}: {js.Name()!r}  '
+        js = SDL3.Joystick(iid)
+        joysticks[iid] = js
+        print(f'+ joystick {iid}: {js.Name()!r}  '
               f'{js.NumAxes()} axes, {js.NumButtons()} buttons, {js.NumHats()} hats')
 
 
-virtual_index = None
-if '--virtual' in sys.argv and hasattr(SDL3, 'JoystickAttachVirtual'):
-    virtual_index = SDL3.JoystickAttachVirtual(SDL3.JOYSTICK_TYPE_GAMEPAD, 6, 8, 1)
-    vjs = SDL3.Joystick(virtual_index)
+virtual_id = None
+if '--virtual' in sys.argv:
+    virtual_id = SDL3.JoystickAttachVirtual(SDL3.JOYSTICK_TYPE_GAMEPAD, 6, 8, 1)
+    vjs = SDL3.Joystick(virtual_id)
     print('attached virtual joystick; press number keys 0-5 to nudge its axes')
 
-for device_index in SDL3.GetJoysticks():
-    add_device(i)
+for iid in SDL3.GetJoysticks():
+    add_device(iid)
 
 running = True
 while running:
@@ -59,9 +57,9 @@ while running:
     if kind == SDL3.EVENT_QUIT:
         running = False
 
-    elif kind in (SDL3.CONTROLLERDEVICEADDED, SDL3.JOYDEVICEADDED):
+    elif kind in (SDL3.EVENT_GAMEPAD_ADDED, SDL3.EVENT_JOYSTICK_ADDED):
         add_device(data[0])
-    elif kind in (SDL3.CONTROLLERDEVICEREMOVED, SDL3.JOYDEVICEREMOVED):
+    elif kind in (SDL3.EVENT_GAMEPAD_REMOVED, SDL3.EVENT_JOYSTICK_REMOVED):
         controllers.pop(data[0], None)
         joysticks.pop(data[0], None)
         print(f'- device {data[0]} removed')
@@ -82,7 +80,7 @@ while running:
     elif kind in (SDL3.EVENT_JOYSTICK_BUTTON_DOWN, SDL3.EVENT_JOYSTICK_BUTTON_UP):
         print(f'  [{data[0]}] joy button {data[1]} {"down" if data[2] else "up"}')
 
-    elif kind == SDL3.EVENT_KEY_DOWN and virtual_index is not None:
+    elif kind == SDL3.EVENT_KEY_DOWN and virtual_id is not None:
         sym = data[2]
         if SDL3.K_0 <= sym <= SDL3.K_5:
             axis = sym - SDL3.K_0
@@ -90,6 +88,6 @@ while running:
         elif sym == SDL3.K_ESCAPE:
             running = False
 
-if virtual_index is not None:
-    SDL3.JoystickDetachVirtual(virtual_index)
+if virtual_id is not None:
+    SDL3.JoystickDetachVirtual(virtual_id)
 SDL3.Quit()
