@@ -73,7 +73,9 @@ a display:
   geometry; with a path it saves a screenshot (`docs/screenshot.png`) and exits
 - `python3 example/surface.py [out.png]` — software-surface compositing, no window
 - `python3 example/keyboard.py` — keyboard / text-input / mouse event echo, cursors
-- `python3 example/gamepad.py [--virtual]` — gamepad / joystick monitor
+- `python3 example/gamepad.py [--virtual | --demo]` — gamepad / joystick monitor:
+  device info, bindings, touchpad / gyro / battery; `--virtual` adds a virtual
+  pad, `--demo` drives it unattended (runs headless)
 - `python3 example/events.py` — dump every event, custom + cross-thread events, filter
 - `python3 example/timer.py` — fixed-rate animation driven by SDL3.Timer + power state
 - `python3 example/window.py` — window-state playground: border/grab/opacity/flash, message box, display + Vulkan info
@@ -100,7 +102,11 @@ a display:
   `PollEvent` / `WaitEvent` / `PushEvent` / `PeepEvents` / filters etc.
   `EVENT_WINDOW_*` / `EVENT_DISPLAY_*` are handled as per-type ranges
   (`(type, data1, data2, id)`); SDL3 owns `drop.data` so there is no `consume`
-  flag any more.
+  flag any more. Device events lead with `which` (the instance id): gamepad
+  touchpad -> `(which, touchpad, finger, x, y, pressure)`, gamepad sensor ->
+  `(which, sensor, (x, y, z), sensor_timestamp_ns)`, joystick battery ->
+  `(which, POWERSTATE_*, percent)`, added / removed / remapped / update-complete
+  / Steam-handle -> `(which,)`.
 - `src/pysdl_Window.c`, `pysdl_Renderer.c`, `pysdl_Surface.c`, `pysdl_Texture.c`,
   `pysdl_Audio.c`, `pysdl_AudioStream.c`, `pysdl_PixelFormat.c`, `pysdl_Palette.c`,
   `pysdl_Cursor.c`, `pysdl_Joystick.c`, `pysdl_Gamepad.c`, `pysdl_Timer.c`,
@@ -131,14 +137,16 @@ a display:
 ### Object model
 
 Each wrapper struct is `PyObject_HEAD` plus one raw SDL pointer/handle (plus
-tracking fields where needed: `Surface`/`Window`/`Cursor`/`Joystick`.`shouldFree`,
+tracking fields where needed: `Surface`/`Window`/`Cursor`.`shouldFree`,
 `Renderer.target`, `Audio.pycallback`, `Surface.pixels`). The SDL pointer is
 filled in either by `tp_init` (public construction) or afterwards by the C code
 that allocated the wrapper with `PySDL_New(&PySDL_X_Type)`; it is released in
 `tp_dealloc` unless `shouldFree` is 0 (a *borrowed* pointer SDL still owns —
 `Window.GetWindowSurface()`, `GetKeyboardFocus()`/`GetMouseFocus()` via
-`PySDL_WrapWindow()`, `GetCursor()`/`GetDefaultCursor()`,
-`Gamepad.GetJoystick()`).
+`PySDL_WrapWindow()`, `GetCursor()`/`GetDefaultCursor()`). Joysticks and
+gamepads are never borrowed: SDL refcounts opens of the same id, so
+`Gamepad.GetJoystick()` and the `*FromID` / `*FromPlayerIndex` lookups re-open
+the device and return a new owned wrapper (`None` if nothing is open).
 
 `Window`, `Audio`, `AudioStream`, `Renderer`, `Texture`, `PixelFormat`,
 `Palette`, `Cursor`, `Joystick`, `Gamepad`, `Timer`, `Haptic`, and `Sensor` are
@@ -218,6 +226,16 @@ callback, feed the stream with `Audio.Queue()` / drain it with `Audio.Dequeue()`
 New off-main-thread callbacks (timers, event filters) must follow the same
 `PySDL_ThreadEnter` / `PySDL_ThreadLeave` pattern.
 
+Virtual-joystick callbacks (`JoystickAttachVirtualEx(..., rumble=fn, ...)`,
+`pysdl_Joystick.c`) use the Timer's token design: SDL's userdata is an integer
+token, the callables live in a token-keyed dict entry made *before* the attach
+(SDL calls `set_player_index` from inside it), and SDL's `Cleanup` callback
+drops the entry when the device goes (detach, subsystem quit, failed attach).
+SDL runs them with its joystick lock held, sometimes from a dealloc
+(`SDL_CloseJoystick` stops a rumble), so the trampoline sets any pending
+exception aside (`PyErr_Fetch` / `PyErr_Restore`) around the call — do the same
+in any callback SDL can fire from inside another SDL call.
+
 ### Conventions
 
 - Errors: set `pysdl_Error` (exposed as `SDL3.error`) with `SDL_GetError()` and
@@ -242,6 +260,9 @@ New off-main-thread callbacks (timers, event filters) must follow the same
   `-1`, a 3-item colour sets `a = 255`). Check the return — they raise and
   return 0 on bad input. Pass `None` for optional rect args; guard with
   `if (arg && arg != Py_None)` since an omitted optional stays `NULL`.
+- GUIDs cross into Python as 32-char hex strings: `GUIDToPy(SDL_GUID)`, and
+  `PyToGUID(obj, &guid)` (accepts that str or the raw 16 bytes; 0 + exception on
+  bad input), both in `pysdl_Joystick.c`, declared in `pysdl.h`.
 - `PyToPixel(obj, details, palette, &Uint32)` accepts an already-mapped int
   verbatim or maps an `(r,g,b[,a])` sequence through `details` (+ `palette`,
   which may be `NULL`) — used for fill/colour-key.

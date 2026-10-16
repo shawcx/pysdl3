@@ -83,8 +83,7 @@ extern PyTypeObject PySDL_Cursor_Type;
 
 typedef struct {
     PyObject_HEAD
-    SDL_Joystick *joystick;
-    int shouldFree;  // 0 when borrowed (Gamepad.GetJoystick)
+    SDL_Joystick *joystick;  // always owned: lookups re-open by ID (SDL refcounts)
 } PySDL_Joystick;
 extern PyTypeObject PySDL_Joystick_Type;
 
@@ -93,6 +92,11 @@ typedef struct {
     SDL_Gamepad *gamepad;
 } PySDL_Gamepad;
 extern PyTypeObject PySDL_Gamepad_Type;
+
+// Joystick GUIDs cross into Python as 32-char hex strings (pysdl_Joystick.c).
+// PyToGUID also accepts the raw 16 bytes; returns 0 with an exception set.
+PyObject * GUIDToPy(SDL_GUID guid);
+int        PyToGUID(PyObject *obj, SDL_GUID *guid);
 
 typedef struct {
     PyObject_HEAD
@@ -123,23 +127,23 @@ extern PyTypeObject PySDL_AudioStream_Type;
 void _constants(PyObject *module);
 
 // Extra module-function tables registered from their own files.
-extern PyMethodDef pysdl_events_methods[];          // pysdl_events.c  (event queue)
-extern PyMethodDef pysdl_input_methods[];           // pysdl_input.c   (keyboard / mouse / touch / text)
+extern PyMethodDef pysdl_events_methods[];          // pysdl_Events.c  (event queue)
+extern PyMethodDef pysdl_input_methods[];           // pysdl_Input.c   (keyboard / mouse / touch / text)
 extern PyMethodDef pysdl_cursor_methods[];          // pysdl_Cursor.c
 extern PyMethodDef pysdl_joystick_methods[];        // pysdl_Joystick.c
 extern PyMethodDef pysdl_gamepad_methods[];         // pysdl_Gamepad.c
 extern PyMethodDef pysdl_haptic_methods[];          // pysdl_Haptic.c
 extern PyMethodDef pysdl_sensor_methods[];          // pysdl_Sensor.c
-extern PyMethodDef pysdl_video_methods[];           // pysdl_video.c   (display / messagebox / hints / vulkan / metal)
+extern PyMethodDef pysdl_video_methods[];           // pysdl_Video.c   (display / messagebox / hints / vulkan / metal)
 extern PyMethodDef pysdl_audio_methods[];           // pysdl_Audio.c   (drivers / LoadWAV / mixing)
-extern PyMethodDef pysdl_rect_methods[];            // pysdl_rect.c    (rect / point math)
+extern PyMethodDef pysdl_rect_methods[];            // pysdl_Rect.c    (rect / point math)
 
 //=========================================================
 // Helpers (pysdl_util.c)
 //=========================================================
 
-// Allocate a wrapper instance of `type`; sets a TypeError and returns NULL on
-// failure. Replaces the repeated PyObject_CallObject boilerplate.
+// Allocate a wrapper instance of `type` (defined in pysdl.c); sets a TypeError
+// and returns NULL on failure. Replaces the repeated PyObject_CallObject boilerplate.
 PyObject * PySDL_New(PyTypeObject *type);
 
 // Enter/leave the interpreter from an SDL-owned thread (audio, timer, ...).

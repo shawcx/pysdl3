@@ -302,6 +302,120 @@ Tests: `tests/test_rect.py`; example: `example/rects.py`.
   throughout (`LoadBMP` / `LoadImage` / `LoadWAV`, the `…SurfaceFrom` keepalive,
   dollar-template save/load).
 
+## Phase 10 - Joystick & gamepad completeness  — DONE
+
+Ported from pysdl2's phase 10, plus its phase-15 owned `GetJoystick()`. Tests:
+`tests/test_joystick.py` (virtual pads incl. callbacks, touchpad and sensor
+input); example: `example/gamepad.py` (device info, bindings, sensors,
+touchpad / sensor / battery events, `--virtual` pad reporting rumble / LED /
+player; `--demo` drives it unattended, so it runs headless).
+
+- **Joystick** methods: `GetVendor` / `GetProduct` / `GetProductVersion` /
+  `GetFirmwareVersion` / `GetType` / `GetSerial` / `Path` (`None` when absent),
+  `GetAxisInitialState` (-> value or `None`), `GetPlayerIndex` /
+  `SetPlayerIndex`, `SendEffect(bytes)`, `HasRumble` / `HasRumbleTriggers`
+  (capability properties, like `HasLED`). SDL3-only: `GetPowerInfo()` ->
+  `(POWERSTATE_*, percent)`, `GetConnectionState()` -> `JOYSTICK_CONNECTION_*`,
+  `SetVirtualBall`, `SetVirtualTouchpad(touchpad, finger, down, x, y, pressure)`,
+  `SendVirtualSensorData(type, values, sensor_timestamp=0)`.
+- Joystick module (by instance id; pysdl2 name + SDL3 alias):
+  `JoystickGetDevice{GUID,Vendor,Product,ProductVersion,Type,PlayerIndex}` /
+  `GetJoystick…ForID`, `JoystickPathForIndex` / `GetJoystickPathForID`,
+  `JoystickFromInstanceID` / `GetJoystickFromID`, `JoystickFromPlayerIndex` /
+  `GetJoystickFromPlayerIndex`, `LockJoysticks` / `UnlockJoysticks`,
+  `UpdateJoysticks` (alias of `JoystickUpdate`).
+- **GUIDs** stay 32-char hex strings; anything taking one also accepts the raw 16
+  bytes (`PyToGUID` / `GUIDToPy`, declared in `pysdl.h`). A str must be exactly
+  32 hex digits (SDL would read junk as zeros). `JoystickGetGUIDFromString` /
+  `GUIDFromString` / `StringToGUID` -> 16 bytes, `JoystickGetGUIDString` /
+  `GUIDToString` -> str, `GetJoystickGUIDInfo` -> `(vendor, product, version, crc16)`.
+- **Virtual joysticks**: `JoystickAttachVirtual` / `JoystickAttachVirtualEx` /
+  `AttachVirtualJoystick` are one function: `(type=JOYSTICK_TYPE_GAMEPAD,
+  naxes=0, nbuttons=0, nhats=0, *, nballs, vendor_id, product_id, button_mask,
+  axis_mask, name, touchpads=[nfingers, …], sensors=[type | (type, rate_hz), …],
+  update, set_player_index, rumble, rumble_triggers, set_led, send_effect,
+  set_sensors_enabled)` -> instance id. Callbacks go through
+  `PySDL_ThreadEnter`; returning `None` / truthy reports success, falsy or an
+  exception (printed) reports failure and sets SDL's error. Only the given
+  callbacks are wired, so e.g. `HasRumble()` reflects whether `rumble=` was
+  passed. SDL only ever gets an integer token as userdata: the callbacks sit in
+  a token-keyed dict entry made *before* the attach (SDL calls
+  `set_player_index` from inside it) and dropped by SDL's `Cleanup` callback,
+  which runs on `JoystickDetachVirtual` / `DetachVirtualJoystick`, subsystem
+  quit, or a failed attach. `IsJoystickVirtual` alias.
+- **Gamepad** methods: `GetBindForAxis` / `GetBindForButton` (-> `None`,
+  `(GAMEPAD_BINDTYPE_BUTTON|AXIS, n)` or `(GAMEPAD_BINDTYPE_HAT, hat, mask)`,
+  now built on `SDL_GetGamepadBindings`), `GetVendor` / `GetProduct` /
+  `GetProductVersion` / `GetFirmwareVersion` / `GetSerial` / `Path` /
+  `GetSteamHandle`, `GetPlayerIndex` / `SetPlayerIndex`, `HasLED` / `HasRumble` /
+  `HasRumbleTriggers`, `HasAxis` / `HasButton`, `HasSensor` / `SetSensorEnabled` /
+  `IsSensorEnabled` / `GetSensorDataRate` / `GetSensorData(type, count=3)`,
+  `GetNumTouchpads` / `GetNumTouchpadFingers` / `GetTouchpadFinger` (->
+  `(down, x, y, pressure)`), `SendEffect`, `GetAppleSFSymbolsNameFor{Button,Axis}`
+  (`None` off Apple). SDL3-only: `GetBindings()` -> `[(input, output), …]` with
+  input `(BINDTYPE_BUTTON, button)` / `(BINDTYPE_AXIS, axis, min, max)` /
+  `(BINDTYPE_HAT, hat, mask)` and output `(BINDTYPE_BUTTON, GAMEPAD_BUTTON_*)` /
+  `(BINDTYPE_AXIS, GAMEPAD_AXIS_*, min, max)` (`None` for an unbound side);
+  `InstanceID`, `GetRealType`, `GetButtonLabel` (-> `GAMEPAD_BUTTON_LABEL_*`),
+  `GetPowerInfo`, `GetConnectionState`.
+- Gamepad module: `GetGamepads()`, `GameControllerFromInstanceID` /
+  `GetGamepadFromID`, `GameControllerFromPlayerIndex` /
+  `GetGamepadFromPlayerIndex`, `GameControllerTypeForIndex` /
+  `GetGamepadTypeForID`, `GameControllerMappingForDeviceIndex` /
+  `GetGamepadMappingForID`, `GameControllerPathForIndex` / `GetGamepadPathForID`,
+  `GameControllerMappingForGUID` / `GetGamepadMappingForGUID`,
+  `GameControllerNumMappings` / `GameControllerMappingForIndex` (over
+  `GetGamepadMappings()` -> `[str]`), `GameControllerGet{Axis,Button}FromString`
+  / `GetGamepad{Axis,Button}FromString`, `GameControllerGetStringFor{Axis,Button}`
+  / `GetGamepadStringFor{Axis,Button}`, `GetGamepadTypeFromString` /
+  `GetGamepadStringForType`. `AddGamepadMappingsFromFile` also takes the file's
+  bytes (`SDL_AddGamepadMappingsFromIO`).
+- **Owned lookups**: `Gamepad.GetJoystick()` and every `*FromID` /
+  `*FromPlayerIndex` return a new owned wrapper that re-opens the device by id
+  (SDL refcounts opens), so closing one handle never invalidates another;
+  `None` when nothing matching is open. `GetJoystick()` used to return a
+  borrowed pointer that dangled once the gamepad closed. `Joystick.shouldFree`
+  is gone: nothing borrows a joystick any more.
+- `_event()`: `EVENT_GAMEPAD_TOUCHPAD_DOWN/MOTION/UP` -> `(which, touchpad,
+  finger, x, y, pressure)`; `EVENT_GAMEPAD_SENSOR_UPDATE` -> `(which, sensor,
+  (x, y, z), sensor_timestamp_ns)`; `EVENT_JOYSTICK_BATTERY_UPDATED` ->
+  `(which, POWERSTATE_*, percent)`; `EVENT_JOYSTICK_UPDATE_COMPLETE` /
+  `EVENT_GAMEPAD_UPDATE_COMPLETE` / `EVENT_GAMEPAD_STEAM_HANDLE_UPDATED` ->
+  `(which,)`. The constants were already generated; none added.
+- **Bug fix (regression test)**: closing a rumbling joystick stops it through
+  the `rumble` callback, which can run from a dealloc while an exception
+  unwinds; the callbacks now set the pending exception aside (it was a fatal
+  interpreter error).
+
+SDL3 differences and skips:
+
+- No device indices: the `*ForIndex` / `*GetDevice*` names take an instance id.
+  `JoystickGetDeviceInstanceID` is dropped (the id *is* the instance id).
+- `GetSensorDataWithTimestamp` is gone from SDL3; a reading's timestamp now
+  arrives only as the 4th item of `EVENT_GAMEPAD_SENSOR_UPDATE`.
+- Power levels became `SDL_PowerState` + percent (`GetPowerInfo`;
+  `CurrentPowerLevel` still returns just the state). The battery event changed
+  shape the same way.
+- `SendVirtualSensorData` raises on SDL < 3.2.22: those releases never grow the
+  virtual sensor queue past one slot, so a second sample before the next update
+  writes past the heap buffer (fixed upstream in 3.2.22). Its test skips that
+  part on Debian 13 (SDL 3.2.10).
+- SDL (3.2 – 3.4) never reports a virtual joystick's balls (`NumBalls()` is 0,
+  no `JOYSTICK_BALL_MOTION`), so `nballs` / `SetVirtualBall` are accepted but
+  inert. `naxes` / `nbuttons` / `nhats` / `nballs` are capped at 255: SDL walks
+  them with a `Uint8` index and would loop forever.
+- Virtual pads report `GAMEPAD_TYPE_STANDARD` (SDL2 had `CONTROLLER_TYPE_VIRTUAL`).
+- The callbacks run with SDL's joystick lock held and need the GIL, so with
+  several Python threads keep joystick calls on the thread that pumps events (a
+  thread in `WaitEvent` running `update` and another calling a joystick
+  function can deadlock). `LockJoysticks` has the same caveat.
+- pysdl2's "some cleanup" in that commit: conftest's always-rebuild was already
+  covered by the SDL3 conftest's mtime check; `test_audio` gained its `Flush()`;
+  the event-filter `POLLSENTINEL` guard does not apply (SDL3 never runs filters
+  on `EVENT_POLL_SENTINEL`); the `pysdl.h` comment fixes were applied. Of the CI
+  fixes, the `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS` test fixture is ported; the
+  sdl2-compat result inversion does not apply to native SDL3.
+
 ## Explicitly out of scope
 
 Threads / mutexes / semaphores / condition vars / atomics (use Python's),

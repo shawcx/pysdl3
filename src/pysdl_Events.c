@@ -58,7 +58,13 @@ static PyObject * _event(SDL_Event *event) {
         break;
     case SDL_EVENT_JOYSTICK_ADDED:
     case SDL_EVENT_JOYSTICK_REMOVED:
+    case SDL_EVENT_JOYSTICK_UPDATE_COMPLETE:
         data = Py_BuildValue("(i)", event->jdevice.which);
+        break;
+    case SDL_EVENT_JOYSTICK_BATTERY_UPDATED:
+        // SDL3: a POWERSTATE_* plus percent (-1 if unknown) replace SDL2's level.
+        data = Py_BuildValue("(iii)", event->jbattery.which, event->jbattery.state,
+            event->jbattery.percent);
         break;
     case SDL_EVENT_GAMEPAD_AXIS_MOTION:
         data = Py_BuildValue("(iii)", event->gaxis.which, event->gaxis.axis, event->gaxis.value);
@@ -70,7 +76,24 @@ static PyObject * _event(SDL_Event *event) {
     case SDL_EVENT_GAMEPAD_ADDED:
     case SDL_EVENT_GAMEPAD_REMOVED:
     case SDL_EVENT_GAMEPAD_REMAPPED:
+    case SDL_EVENT_GAMEPAD_UPDATE_COMPLETE:
+    case SDL_EVENT_GAMEPAD_STEAM_HANDLE_UPDATED:
         data = Py_BuildValue("(i)", event->gdevice.which);
+        break;
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN:
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_MOTION:
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_UP: {
+            SDL_GamepadTouchpadEvent *e = &event->gtouchpad;
+            data = Py_BuildValue("(iiifff)", e->which, e->touchpad, e->finger, e->x, e->y, e->pressure);
+        }
+        break;
+    case SDL_EVENT_GAMEPAD_SENSOR_UPDATE: {
+            // SDL3 dropped GetSensorDataWithTimestamp; the reading's own
+            // timestamp (ns) now arrives only here.
+            SDL_GamepadSensorEvent *e = &event->gsensor;
+            data = Py_BuildValue("(ii(fff)K)", e->which, e->sensor, e->data[0], e->data[1],
+                e->data[2], (unsigned long long)e->sensor_timestamp);
+        }
         break;
     case SDL_EVENT_SENSOR_UPDATE: {
             const float *v = event->sensor.data;
