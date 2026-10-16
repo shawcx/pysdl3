@@ -405,10 +405,10 @@ SDL3 differences and skips:
   inert. `naxes` / `nbuttons` / `nhats` / `nballs` are capped at 255: SDL walks
   them with a `Uint8` index and would loop forever.
 - Virtual pads report `GAMEPAD_TYPE_STANDARD` (SDL2 had `CONTROLLER_TYPE_VIRTUAL`).
-- The callbacks run with SDL's joystick lock held and need the GIL, so with
-  several Python threads keep joystick calls on the thread that pumps events (a
+- The callbacks run with SDL's joystick lock held and need the GIL, so a
   thread in `WaitEvent` running `update` and another calling a joystick
-  function can deadlock). `LockJoysticks` has the same caveat.
+  function could deadlock. Fixed in phase 13: joystick / gamepad calls now take
+  that lock with the GIL released.
 - pysdl2's "some cleanup" in that commit: conftest's always-rebuild was already
   covered by the SDL3 conftest's mtime check; `test_audio` gained its `Flush()`;
   the event-filter `POLLSENTINEL` guard does not apply (SDL3 never runs filters
@@ -492,7 +492,7 @@ SDL3 differences, fixes and skips:
 ## Phase 12 - Render, surface & window completeness  — DONE
 
 Ported from pysdl2's phase 12, together with the renderer -> texture
-invalidation of its phase 15 (the cursor part of phase 15 is still to come).
+invalidation of its phase 15 (the cursor part came with phase 13).
 Tests: phase-12 sections of `tests/test_renderer.py`, `test_texture.py`,
 `test_surface.py`, `test_video.py` (the `Quit` cases run in a subprocess; the
 parent-window case needs a real video driver and skips under dummy); example:
@@ -631,6 +631,154 @@ SDL3 differences and skips:
 - Known remaining: `Texture.Lock()`'s memoryview is a raw view of SDL's
   memory and still dangles if kept past `Unlock()` or the texture's renderer
   (as in pysdl2).
+
+## Phase 13 - Loose ends II  — DONE
+
+Ported from pysdl2's phase 13, together with the cursor half of its phase 15,
+which completes the phase-15 port (windows and window surfaces predate the
+SDL3 port, joysticks came with phase 10, renderers and textures with phase 12).
+Tests: phase-13 sections of `tests/test_events.py` (watchers, the GIL rule;
+the cross-thread and `Quit` cases run in a subprocess that is killed on a
+deadlock), `test_video.py` (hint callbacks), `test_cursor.py` (cursor
+lifetimes), `test_joystick.py` (the joystick lock), `test_timer.py` (`Quit`
+while callbacks run), `test_rect.py`,
+`test_input.py`, `test_system.py`; example: `example/events.py` (watcher + hint
+callback; `--seconds N` quits by itself, so it runs headless).
+
+- **Event watchers**: `AddEventWatch(callback)` / `RemoveEventWatch(callback)`
+  (`DelEventWatch`, pysdl2's name). Watchers run after the filter, only for
+  events it keeps, on whichever thread pushed the event; the return value is
+  ignored. Adding a callback twice registers it twice; removing drops the
+  latest registration (by identity, `ValueError` if none). A watcher may remove
+  itself or another one (SDL skips it for the rest of that dispatch). SDL is
+  handed an integer token, never the callable (the Timer design): the
+  trampoline looks it up under the GIL, and removal deletes the entry first.
+- **GIL rule for the event queue**: SDL runs the filter and watchers under its
+  event-watcher lock (and `SDL_SetEventFilter` / `SDL_FilterEvents` run a
+  filter holding the queue lock too); the trampoline then takes the GIL, which
+  the Python callback can hand to another thread mid-call. So `PumpEvents`,
+  `PollEvent`, `PushEvent`, `FlushEvent(s)`, `HasEvent(s)`, `EventState` /
+  `SetEventEnabled`, `QuitRequested`, `SetEventFilter`, `FilterEvents`,
+  `Add/RemoveEventWatch`, `ResetKeyboard` and the clipboard setters (which push
+  `EVENT_CLIPBOARD_UPDATE`) now drop the GIL, as `WaitEvent(Timeout)` /
+  `PeepEvents` already did. **Bug fix (regression test)**: with a filter
+  installed, two threads pushing events deadlocked within milliseconds.
+- **Bug fix (regression test)**: the filter trampoline read the current filter
+  *before* taking the GIL, so replacing the filter could free one a call on
+  another thread was about to use. It now reads it under the GIL (SDL still
+  gets no Python pointer). Filter / watcher trampolines also set aside an
+  exception that is already pending: destroying a window from a dealloc while
+  an exception unwinds pushes `EVENT_WINDOW_DESTROYED`.
+- Stopping the event subsystem (`Quit`, or `QuitSubSystem` dropping its last
+  reference) makes SDL forget the filter and watchers; the binding forgets them
+  too (`GetEventFilter()` -> `None`, `RemoveEventWatch` -> `ValueError`).
+- **Hint callbacks**: `AddHintCallback(name, callback)` -> `callback(name, old,
+  new)`, called once right away (`old == new`) and then on every change of that
+  hint (`None` when unset), on the thread that changed it; adding the same
+  callback again only repeats the first call. `RemoveHintCallback`
+  (`DelHintCallback`), `ResetHints`. SDL gets one callback per watched hint
+  name (userdata `NULL`), added with the first Python callback and left in
+  place; the callables live in a name -> list dict read under the GIL. SDL
+  walks a hint's callback list saving only the next node, so a callback that
+  removed a *later* SDL registration (pysdl2 registered one per callable) would
+  make SDL visit freed memory. SDL runs hint callbacks under its hint lock, so
+  `Set/GetHint`, `SetHintWithPriority`, `GetHintBoolean`, `ResetHint(s)` and
+  `AddHintCallback` drop the GIL. `SDL_Quit` frees every hint callback; `Quit`
+  empties the registrations.
+- Clipboard: `Get/Set/HasPrimarySelectionText`. Where the video driver has no
+  primary selection (dummy, Cocoa) SDL keeps the text itself, so it
+  round-trips.
+- Keyboard: `ClearComposition(window)` (per-window in SDL3), `ResetKeyboard`;
+  SDL3-name aliases `TextInputActive` / `ScreenKeyboardShown` (the pysdl2-era
+  `IsTextInputActive` / `IsScreenKeyboardShown` were already there).
+- Rect: `EncloseFPoints(points, clip=None)`, `IntersectFRectAndLine(frect,
+  line)`. SDL3's float versions have **no** integer `+1` edges (SDL2's kept
+  them): the enclosing rect spans exactly min..max and a rect's far edge
+  `x + w` counts as inside. **Bug fix**: `IntersectRectAndLine` with a list
+  for the line raised `SystemError` (lines may now be tuples or lists).
+- Sensors: `SensorFromInstanceID` / `GetSensorFromID` (a new owned Sensor
+  re-opened by id, SDL refcounts; `None` if not open),
+  `SensorGetDeviceNonPortableType` / `GetSensorNonPortableTypeForID` (-1 for an
+  unknown id), `GetSensorTypeForID` alias. Haptic: `HapticOpened(id)`,
+  `GetHapticFromID(id)` (owned re-open; `None` if not open).
+- Misc: `GetErrorMsg`, an alias of `GetError` (SDL3's error is per-thread
+  already and has no `SDL_GetErrorMsg`).
+
+**Cursor lifetimes** (pysdl2 phase 15's cursor part). SDL3 keeps every cursor
+in a list and frees them all when video shuts down (`SDL_QuitMouse`, ours and
+its default cursor included); `SDL_DestroyCursor` / `SDL_SetCursor` only
+compare a pointer against that list, so a stale pointer is not a crash there
+but acts on whatever cursor later reuses the address.
+
+- Cursor wrappers register in `tp_init` (`PySDL_Registry`). An owning Cursor's
+  dealloc nulls other wrappers of its cursor; video teardown
+  (`PySDL_InvalidateWindows` -> `PySDL_InvalidateCursors`) nulls them all, so
+  owned ones are not freed a second time. `GetCursor()` returns the owning
+  `Cursor` object for our own cursors (only SDL's default cursor is ever
+  borrowed). `SetCursor` / `Cursor.Set` raise on an invalid cursor instead of
+  passing NULL (SDL's "redraw"), and now raise SDL's own errors instead of
+  ignoring them.
+- Creating a cursor while video is down raises: SDL would create it through a
+  driver that has shut down, or lose it at the next video init.
+  `CreateColorCursor` takes its Surface through `PySDL_SurfaceArg`.
+- SDL3's dummy driver makes colour / bitmap cursors and a 1x1 default cursor
+  without driver support, so these tests run headless (pysdl2's skipped).
+
+**The joystick lock and the GIL** (phase 10's documented deadlock, fixed).
+SDL runs virtual-joystick callbacks - so Python - holding its joystick lock,
+and with the event calls dropping the GIL a thread pumping events runs
+`update` while another calls joystick functions. Every Python entry point of
+`pysdl_Joystick.c` / `pysdl_Gamepad.c` (and the two joystick calls in
+`pysdl_Haptic.c`) now takes that lock first with the GIL released
+(`PySDL_JoystickLock`, a no-op while the joystick subsystem is down) and runs
+holding both, so no thread waits for the joystick lock while holding the GIL,
+and strings SDL returns are copied before another thread can close the
+device. The functions are wrapped by `PYSDL_JOYSTICK_LOCKED(_KW)` (pysdl.h:
+`name` calls `name##_impl` under the lock). **Bug fix (regression test)**: a
+pumping thread with an `update` callback and a thread calling joystick /
+gamepad functions deadlocked within milliseconds. Cost: about 60 ns per call
+single-threaded (a GIL release / re-acquire).
+
+**Init / Quit drop the GIL** too. **Bug fix (regression tests in
+`tests/test_timer.py`)**: shutting a subsystem down waits for SDL threads that
+may be inside a Python callback waiting for the GIL, so holding it deadlocked:
+`Quit` -> `SDL_QuitTimers` joining the timer thread while a timer callback
+(one `Timer.Remove()` doesn't wait for) waited for the GIL - this is what made
+the cross-thread events test hang about once in 35 runs - and
+`QuitSubSystem(INIT_AUDIO)` closing a device whose thread held it inside the
+playback callback. `Init` / `InitSubSystem` take SDL's joystick lock (the
+gamepad subsystem) the same way. The binding's bookkeeping (what was running,
+invalidating wrappers, dropping filter / watcher / hint registrations) happens
+with the GIL held, before and after; other threads must not use SDL while
+these run.
+
+SDL3 differences and skips:
+
+- SDL3 has no `SDL_ClearHints`: `ClearHints` is `ResetHints` (values back to
+  their defaults, callbacks kept and called); `SDL_Quit` is what drops the
+  callbacks. pysdl2's `ClearHints` dropped them.
+- Gone from SDL3, skipped: `SDL_IsTextInputShown`, `SDL_HasRDTSC`,
+  `SDL_LockSensors` / `SDL_UnlockSensors` (internal now), and
+  `SDL_SensorGetDataWithTimestamp` (a reading's timestamp is only in
+  `SDL_SensorEvent.sensor_timestamp`, which `_event()` does not expose for
+  `EVENT_SENSOR_UPDATE` yet; gamepad sensor events carry theirs).
+- Haptics and sensors are looked up by id, not index (`HapticOpened(id)`).
+- SDL3 never runs filters or watchers on its poll sentinel, so pysdl2's
+  `POLLSENTINEL` caveats do not apply.
+- Residual GIL risks, as in pysdl2: SDL functions that push events only as a
+  side effect (most window calls) still hold the GIL, which needs a filter /
+  watcher plus a concurrent push from another thread to bite. Hint callbacks
+  run under SDL's hint lock and almost every SDL call reads hints, so a hint
+  callback that runs long enough to be preempted can deadlock against SDL
+  calls on another thread: keep hint callbacks short, and change hints from
+  one thread.
+- Found, not fixed (predates this phase): `SDL_Quit` frees SDL's cached
+  `SDL_PixelFormatDetails`, which every `PixelFormat` wrapper and every Surface
+  created before it still point at; using them after `Quit` reads freed memory
+  (seen under valgrind). An `Audio` kept past `QuitSubSystem(INIT_AUDIO)` /
+  `Quit` crashes in its dealloc (`SDL_DestroyAudioStream` on a stream SDL
+  already freed), and `Joystick` / `Gamepad` wrappers are not invalidated when
+  the joystick subsystem stops.
 
 ## Explicitly out of scope
 

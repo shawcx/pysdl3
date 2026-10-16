@@ -582,3 +582,71 @@ def test_new_event_constants(sdl):
                  'EVENT_JOYSTICK_BATTERY_UPDATED', 'EVENT_GAMEPAD_STEAM_HANDLE_UPDATED',
                  'GAMEPAD_BINDTYPE_HAT', 'JOYSTICK_AXIS_MAX', 'JOYSTICK_CONNECTION_WIRED'):
         assert isinstance(getattr(sdl, name), int)
+
+
+# --- phase 13: the joystick lock and the GIL ---------------------------------
+
+def test_virtual_callbacks_cross_thread_no_deadlock(sdl):
+    '''SDL runs a virtual joystick's callbacks holding its joystick lock, and
+    they need the GIL. A thread pumping events (running `update`) used to
+    deadlock within milliseconds against another thread calling any joystick
+    or gamepad function while holding the GIL; those now take the lock with
+    the GIL released. In a subprocess, killed on a deadlock.'''
+    import os
+    import subprocess
+    import sys
+    import textwrap
+    code = textwrap.dedent('''
+        import threading, time, SDL3
+        SDL3.SetHint('SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS', '1')
+        SDL3.Init(SDL3.INIT_VIDEO | SDL3.INIT_EVENTS | SDL3.INIT_JOYSTICK | SDL3.INIT_GAMEPAD)
+        updates = []
+        rumbles = []
+
+        def update():
+            sum(range(500))  # long enough to be preempted
+            updates.append(threading.get_ident())
+
+        jid = SDL3.AttachVirtualJoystick(
+            SDL3.JOYSTICK_TYPE_GAMEPAD, 2, 4, 0, update=update,
+            rumble=lambda low, high: rumbles.append((low, high)))
+        js = SDL3.Joystick(jid)
+        pad = SDL3.Gamepad(jid)
+        stop = time.monotonic() + 1.0
+
+        def pump():
+            while time.monotonic() < stop:
+                SDL3.PumpEvents()
+                SDL3.WaitEventTimeout(1)
+
+        thread = threading.Thread(target=pump)
+        thread.start()
+        n = 0
+        while time.monotonic() < stop:
+            js.GetAxis(0)
+            pad.GetButton(SDL3.GAMEPAD_BUTTON_SOUTH)
+            SDL3.GetJoysticks()
+            SDL3.JoystickIsHaptic(js)
+            js.SetVirtualAxis(0, n % 1000)
+            n += 1
+            if n % 100 == 0:
+                SDL3.LockJoysticks()
+                SDL3.UnlockJoysticks()
+                other = SDL3.Joystick(jid)  # open / close from this thread too
+                other.Rumble(1, 1, 1000)    # the rumble callback runs here
+                del other
+        thread.join()
+        assert thread.ident in updates and rumbles  # update ran on the pumping thread
+        pad.Close()
+        js.Close()
+        SDL3.DetachVirtualJoystick(jid)
+        SDL3.Quit()
+        print('ok')
+    ''')
+    env = dict(os.environ, PYTHONPATH=os.path.dirname(sdl.__file__))
+    try:
+        out = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True,
+                             text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        pytest.fail('deadlocked (timed out)')
+    assert out.returncode == 0 and out.stdout.strip() == 'ok', out.stderr or out.stdout

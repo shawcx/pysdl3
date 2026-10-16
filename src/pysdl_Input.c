@@ -95,6 +95,15 @@ static PyObject * PySDL_GetKeyState(PyObject *self, PyObject *ign) {
     return list;
 }
 
+// Release every pressed key (sending KEY_UP events) and clear the modifier
+// state. It pushes events, so the GIL is dropped (see pysdl_Events.c).
+static PyObject * PySDL_ResetKeyboard(PyObject *self, PyObject *ign) {
+    Py_BEGIN_ALLOW_THREADS
+        SDL_ResetKeyboard();
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
+}
+
 static PyObject * PySDL_GetKeyboardFocus(PyObject *self, PyObject *ign) {
     return PySDL_WrapWindow(SDL_GetKeyboardFocus());
 }
@@ -151,6 +160,22 @@ static PyObject * PySDL_IsTextInputActive(PyObject *self, PyObject *arg) {
         return NULL;
     }
     return PyBool_FromLong(SDL_TextInputActive(window));
+}
+
+// Drop any in-progress IME composition in `window` (SDL3: per-window).
+static PyObject * PySDL_ClearComposition(PyObject *self, PyObject *arg) {
+    SDL_Window *window;
+    if(!_opt_window(arg, &window) || NULL == window) {
+        if(!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "ClearComposition requires a Window");
+        }
+        return NULL;
+    }
+    if(!SDL_ClearComposition(window)) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+        return NULL;
+    }
+    Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_SetTextInputRect(PyObject *self, PyObject *args) {
@@ -363,13 +388,17 @@ PyMethodDef pysdl_input_methods[] = {
     { "SetModState",              PySDL_SetModState,              METH_O      },
     { "GetModState",              PySDL_GetModState,              METH_NOARGS },
     { "GetKeyState",              PySDL_GetKeyState,              METH_NOARGS },
+    { "ResetKeyboard",            PySDL_ResetKeyboard,            METH_NOARGS },
     { "GetKeyboardFocus",         PySDL_GetKeyboardFocus,         METH_NOARGS },
     { "HasScreenKeyboardSupport", PySDL_HasScreenKeyboardSupport, METH_NOARGS },
     { "IsScreenKeyboardShown",    PySDL_IsScreenKeyboardShown,    METH_O      },
+    { "ScreenKeyboardShown",      PySDL_IsScreenKeyboardShown,    METH_O      },
 
     { "StartTextInput",           PySDL_StartTextInput,          METH_O       },
     { "StopTextInput",            PySDL_StopTextInput,           METH_O       },
     { "IsTextInputActive",        PySDL_IsTextInputActive,       METH_O       },
+    { "TextInputActive",          PySDL_IsTextInputActive,       METH_O       },
+    { "ClearComposition",         PySDL_ClearComposition,        METH_O       },
     { "SetTextInputRect",         PySDL_SetTextInputRect,        METH_VARARGS },
     { "SetTextInputArea",         PySDL_SetTextInputRect,        METH_VARARGS },
 

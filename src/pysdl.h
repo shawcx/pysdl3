@@ -96,6 +96,37 @@ typedef struct {
 } PySDL_Gamepad;
 extern PyTypeObject PySDL_Gamepad_Type;
 
+// SDL runs virtual-joystick callbacks - and so Python - holding its joystick
+// lock, so a thread that waits for that lock while holding the GIL can
+// deadlock against one. PySDL_JoystickLock() takes it with the GIL released
+// (a no-op while the joystick subsystem is down) and returns whether it did,
+// for PySDL_JoystickUnlock(). Every Python entry point of pysdl_Joystick.c
+// and pysdl_Gamepad.c runs inside it: PYSDL_JOYSTICK_LOCKED(name, selftype)
+// (METH_NOARGS / METH_O / METH_VARARGS) and PYSDL_JOYSTICK_LOCKED_KW (with
+// keywords) declare `name##_impl` and define `name` as that call under the
+// lock. The body then runs holding both, so strings SDL returns are copied
+// before another thread can close the device.
+int  PySDL_JoystickLock(void);
+void PySDL_JoystickUnlock(int locked);
+
+#define PYSDL_JOYSTICK_LOCKED(name, selftype)                                   \
+    static PyObject * name##_impl(selftype, PyObject *);                       \
+    static PyObject * name(selftype self, PyObject *arg) {                     \
+        int locked = PySDL_JoystickLock();                                     \
+        PyObject *result = name##_impl(self, arg);                             \
+        PySDL_JoystickUnlock(locked);                                          \
+        return result;                                                         \
+    }
+
+#define PYSDL_JOYSTICK_LOCKED_KW(name, selftype)                                \
+    static PyObject * name##_impl(selftype, PyObject *, PyObject *);           \
+    static PyObject * name(selftype self, PyObject *args, PyObject *kwds) {    \
+        int locked = PySDL_JoystickLock();                                     \
+        PyObject *result = name##_impl(self, args, kwds);                      \
+        PySDL_JoystickUnlock(locked);                                          \
+        return result;                                                         \
+    }
+
 // Joystick GUIDs cross into Python as 32-char hex strings (pysdl_Joystick.c).
 // PyToGUID also accepts the raw 16 bytes; returns 0 with an exception set.
 PyObject * GUIDToPy(SDL_GUID guid);
@@ -228,8 +259,18 @@ void PySDL_SurfaceDetach(PySDL_Surface *surface);
 // it frees every window when video shuts down.
 void PySDL_WindowSurfaceForget(PySDL_Surface *surface);  // from Surface tp_dealloc
 void PySDL_WindowSurfaceDrop(SDL_Window *window);        // SDL is about to free `window`'s surface
-void PySDL_InvalidateWindows(void);   // video is gone: null every Window / Renderer / Texture, empty every window surface
+void PySDL_InvalidateWindows(void);   // video is gone: null every Window / Renderer / Texture / Cursor, empty every window surface
 void PySDL_CheckVideoGone(void);      // PySDL_InvalidateWindows() if video is no longer running
+
+// Cursor tracking (pysdl_Cursor.c): SDL_DestroyCursor frees a cursor other
+// (borrowed) wrappers may hold, and video shutdown frees every cursor.
+void PySDL_InvalidateCursors(void);   // from PySDL_InvalidateWindows
+
+// SDL forgets Python callbacks behind our back: stopping the event subsystem
+// drops the event filter and watchers (pysdl_Events.c), SDL_Quit drops every
+// hint callback (pysdl_Video.c). pysdl.c's Quit / QuitSubSystem call these.
+void PySDL_EventWatchesGone(void);
+void PySDL_HintCallbacksGone(void);
 
 // Renderer / texture tracking (pysdl_Renderer.c). SDL_DestroyRenderer frees
 // every texture of that renderer, SDL_DestroyWindow destroys the window's

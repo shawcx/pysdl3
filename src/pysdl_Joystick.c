@@ -4,49 +4,55 @@
 // device index. SDL refcounts opens of the same ID, so every Joystick wrapper
 // owns its reference - lookups (Gamepad.GetJoystick, JoystickFromInstanceID,
 // ...) re-open by ID rather than borrow.
+//
+// Threading: SDL calls the virtual-joystick callbacks below with its joystick
+// lock held, and they take the GIL. So every Python entry point here and in
+// pysdl_Gamepad.c takes that lock first, with the GIL released
+// (PYSDL_JOYSTICK_LOCKED, pysdl.h), and runs holding both: no thread ever
+// waits for the joystick lock while holding the GIL.
 
 static int        PySDL_Joystick_Type_init    (PySDL_Joystick*, PyObject*, PyObject*);
 static void       PySDL_Joystick_Type_dealloc (PySDL_Joystick*);
 
-static PyObject * PySDL_Joystick_Name              (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetGUID           (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_InstanceID        (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_Attached          (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_NumAxes           (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_NumButtons        (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_NumHats           (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_NumBalls          (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetAxis           (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetButton         (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetHat            (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetBall           (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_Rumble            (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_RumbleTriggers    (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SetLED            (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_HasLED            (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_HasRumble         (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_HasRumbleTriggers (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SendEffect        (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_CurrentPowerLevel (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetPowerInfo      (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetConnectionState (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetVendor         (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetProduct        (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetProductVersion (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetFirmwareVersion (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetSerial         (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_Path              (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetType           (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetAxisInitialState (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_GetPlayerIndex    (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SetPlayerIndex    (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SetVirtualAxis    (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SetVirtualButton  (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SetVirtualHat     (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SetVirtualBall    (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SetVirtualTouchpad (PySDL_Joystick*, PyObject*);
-static PyObject * PySDL_Joystick_SendVirtualSensorData (PySDL_Joystick*, PyObject*, PyObject*);
-static PyObject * PySDL_Joystick_Close             (PySDL_Joystick*, PyObject*);
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_Name,                     PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetGUID,                  PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_InstanceID,               PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_Attached,                 PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_NumAxes,                  PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_NumButtons,               PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_NumHats,                  PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_NumBalls,                 PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetAxis,                  PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetButton,                PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetHat,                   PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetBall,                  PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_Rumble,                   PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_RumbleTriggers,           PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SetLED,                   PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_HasLED,                   PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_HasRumble,                PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_HasRumbleTriggers,        PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SendEffect,               PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_CurrentPowerLevel,        PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetPowerInfo,             PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetConnectionState,       PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetVendor,                PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetProduct,               PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetProductVersion,        PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetFirmwareVersion,       PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetSerial,                PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_Path,                     PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetType,                  PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetAxisInitialState,      PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_GetPlayerIndex,           PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SetPlayerIndex,           PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SetVirtualAxis,           PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SetVirtualButton,         PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SetVirtualHat,            PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SetVirtualBall,           PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_SetVirtualTouchpad,       PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED_KW(PySDL_Joystick_SendVirtualSensorData, PySDL_Joystick *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Joystick_Close,                    PySDL_Joystick *)
 
 static PyMethodDef PySDL_Joystick_methods[] = {
     { "Name",              (PyCFunction)PySDL_Joystick_Name,              METH_NOARGS },
@@ -112,7 +118,9 @@ static int PySDL_Joystick_Type_init(PySDL_Joystick *self, PyObject *args, PyObje
     self->joystick = NULL;
 
     if(id > 0) {
+        int locked = PySDL_JoystickLock();
         self->joystick = SDL_OpenJoystick((SDL_JoystickID)id);
+        PySDL_JoystickUnlock(locked);
         if(NULL == self->joystick) {
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
@@ -123,10 +131,28 @@ static int PySDL_Joystick_Type_init(PySDL_Joystick *self, PyObject *args, PyObje
 
 static void PySDL_Joystick_Type_dealloc(PySDL_Joystick *self) {
     if(NULL != self->joystick) {
-        SDL_CloseJoystick(self->joystick);
+        int locked = PySDL_JoystickLock();
+        SDL_CloseJoystick(self->joystick);  // may call a virtual joystick's rumble callback
+        PySDL_JoystickUnlock(locked);
     }
     self->joystick = NULL;
     Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+int PySDL_JoystickLock(void) {
+    if(0 == SDL_WasInit(SDL_INIT_JOYSTICK)) {
+        return 0;  // no joysticks, no callbacks (and SDL's lock may not exist)
+    }
+    Py_BEGIN_ALLOW_THREADS
+        SDL_LockJoysticks();
+    Py_END_ALLOW_THREADS
+    return 1;
+}
+
+void PySDL_JoystickUnlock(int locked) {
+    if(locked) {
+        SDL_UnlockJoysticks();
+    }
 }
 
 static SDL_Joystick * _js(PySDL_Joystick *self) {
@@ -166,67 +192,67 @@ static PyObject * _cap(SDL_Joystick *js, const char *name) {
     return PyBool_FromLong(SDL_GetBooleanProperty(SDL_GetJoystickProperties(js), name, false));
 }
 
-static PyObject * PySDL_Joystick_Name(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_Name_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     if(NULL == js) return NULL;
     const char *name = SDL_GetJoystickName(js);
     return PyUnicode_FromString(name ? name : "");
 }
 
-static PyObject * PySDL_Joystick_GetGUID(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetGUID_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? GUIDToPy(SDL_GetJoystickGUID(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_InstanceID(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_InstanceID_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     if(NULL == js) return NULL;
     return PyLong_FromUnsignedLong(SDL_GetJoystickID(js));
 }
 
-static PyObject * PySDL_Joystick_Attached(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_Attached_impl(PySDL_Joystick *self, PyObject *ign) {
     return PyBool_FromLong(self->joystick && SDL_JoystickConnected(self->joystick));
 }
 
-static PyObject * PySDL_Joystick_NumAxes(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_NumAxes_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetNumJoystickAxes(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_NumButtons(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_NumButtons_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetNumJoystickButtons(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_NumHats(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_NumHats_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetNumJoystickHats(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_NumBalls(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_NumBalls_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetNumJoystickBalls(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetAxis(PySDL_Joystick *self, PyObject *arg) {
+static PyObject * PySDL_Joystick_GetAxis_impl(PySDL_Joystick *self, PyObject *arg) {
     int axis;
     SDL_Joystick *js = _js_int(self, arg, &axis);
     return js ? PyLong_FromLong(SDL_GetJoystickAxis(js, axis)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetButton(PySDL_Joystick *self, PyObject *arg) {
+static PyObject * PySDL_Joystick_GetButton_impl(PySDL_Joystick *self, PyObject *arg) {
     int button;
     SDL_Joystick *js = _js_int(self, arg, &button);
     return js ? PyBool_FromLong(SDL_GetJoystickButton(js, button)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetHat(PySDL_Joystick *self, PyObject *arg) {
+static PyObject * PySDL_Joystick_GetHat_impl(PySDL_Joystick *self, PyObject *arg) {
     int hat;
     SDL_Joystick *js = _js_int(self, arg, &hat);
     return js ? PyLong_FromLong(SDL_GetJoystickHat(js, hat)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetBall(PySDL_Joystick *self, PyObject *arg) {
+static PyObject * PySDL_Joystick_GetBall_impl(PySDL_Joystick *self, PyObject *arg) {
     int ball;
     SDL_Joystick *js = _js_int(self, arg, &ball);
     if(NULL == js) return NULL;
@@ -238,7 +264,7 @@ static PyObject * PySDL_Joystick_GetBall(PySDL_Joystick *self, PyObject *arg) {
     return Py_BuildValue("(ii)", dx, dy);
 }
 
-static PyObject * PySDL_Joystick_Rumble(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_Rumble_impl(PySDL_Joystick *self, PyObject *args) {
     unsigned int low, high, ms;
     SDL_Joystick *js = _js(self);
     if(NULL == js || !PyArg_ParseTuple(args, "III", &low, &high, &ms)) {
@@ -247,7 +273,7 @@ static PyObject * PySDL_Joystick_Rumble(PySDL_Joystick *self, PyObject *args) {
     return PyBool_FromLong(SDL_RumbleJoystick(js, (Uint16)low, (Uint16)high, ms));
 }
 
-static PyObject * PySDL_Joystick_RumbleTriggers(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_RumbleTriggers_impl(PySDL_Joystick *self, PyObject *args) {
     unsigned int left, right, ms;
     SDL_Joystick *js = _js(self);
     if(NULL == js || !PyArg_ParseTuple(args, "III", &left, &right, &ms)) {
@@ -256,7 +282,7 @@ static PyObject * PySDL_Joystick_RumbleTriggers(PySDL_Joystick *self, PyObject *
     return PyBool_FromLong(SDL_RumbleJoystickTriggers(js, (Uint16)left, (Uint16)right, ms));
 }
 
-static PyObject * PySDL_Joystick_SetLED(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_SetLED_impl(PySDL_Joystick *self, PyObject *args) {
     unsigned char r, g, b;
     SDL_Joystick *js = _js(self);
     if(NULL == js || !PyArg_ParseTuple(args, "bbb", &r, &g, &b)) {
@@ -265,20 +291,20 @@ static PyObject * PySDL_Joystick_SetLED(PySDL_Joystick *self, PyObject *args) {
     return PyBool_FromLong(SDL_SetJoystickLED(js, r, g, b));
 }
 
-static PyObject * PySDL_Joystick_HasLED(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_HasLED_impl(PySDL_Joystick *self, PyObject *ign) {
     return _cap(self->joystick, SDL_PROP_JOYSTICK_CAP_RGB_LED_BOOLEAN);
 }
 
-static PyObject * PySDL_Joystick_HasRumble(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_HasRumble_impl(PySDL_Joystick *self, PyObject *ign) {
     return _cap(self->joystick, SDL_PROP_JOYSTICK_CAP_RUMBLE_BOOLEAN);
 }
 
-static PyObject * PySDL_Joystick_HasRumbleTriggers(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_HasRumbleTriggers_impl(PySDL_Joystick *self, PyObject *ign) {
     return _cap(self->joystick, SDL_PROP_JOYSTICK_CAP_TRIGGER_RUMBLE_BOOLEAN);
 }
 
 // SendEffect(data: bytes-like) -> bool
-static PyObject * PySDL_Joystick_SendEffect(PySDL_Joystick *self, PyObject *arg) {
+static PyObject * PySDL_Joystick_SendEffect_impl(PySDL_Joystick *self, PyObject *arg) {
     SDL_Joystick *js = _js(self);
     if(NULL == js) return NULL;
     Py_buffer data;
@@ -296,7 +322,7 @@ static PyObject * PySDL_Joystick_SendEffect(PySDL_Joystick *self, PyObject *arg)
 }
 
 // SDL3 dropped power levels: this is the SDL_PowerState (POWERSTATE_*).
-static PyObject * PySDL_Joystick_CurrentPowerLevel(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_CurrentPowerLevel_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     if(NULL == js) return NULL;
     int percent = -1;
@@ -304,7 +330,7 @@ static PyObject * PySDL_Joystick_CurrentPowerLevel(PySDL_Joystick *self, PyObjec
 }
 
 // -> (POWERSTATE_*, percent or -1)
-static PyObject * PySDL_Joystick_GetPowerInfo(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetPowerInfo_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     if(NULL == js) return NULL;
     int percent = -1;
@@ -313,48 +339,48 @@ static PyObject * PySDL_Joystick_GetPowerInfo(PySDL_Joystick *self, PyObject *ig
 }
 
 // -> JOYSTICK_CONNECTION_*
-static PyObject * PySDL_Joystick_GetConnectionState(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetConnectionState_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetJoystickConnectionState(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetVendor(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetVendor_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetJoystickVendor(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetProduct(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetProduct_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetJoystickProduct(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetProductVersion(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetProductVersion_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetJoystickProductVersion(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetFirmwareVersion(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetFirmwareVersion_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetJoystickFirmwareVersion(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetSerial(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetSerial_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? _str_or_none(SDL_GetJoystickSerial(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_Path(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_Path_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? _str_or_none(SDL_GetJoystickPath(js)) : NULL;
 }
 
-static PyObject * PySDL_Joystick_GetType(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetType_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetJoystickType(js)) : NULL;
 }
 
 // -> the axis's initial value, or None if SDL has no initial state for it.
-static PyObject * PySDL_Joystick_GetAxisInitialState(PySDL_Joystick *self, PyObject *arg) {
+static PyObject * PySDL_Joystick_GetAxisInitialState_impl(PySDL_Joystick *self, PyObject *arg) {
     int axis;
     SDL_Joystick *js = _js_int(self, arg, &axis);
     if(NULL == js) return NULL;
@@ -365,13 +391,13 @@ static PyObject * PySDL_Joystick_GetAxisInitialState(PySDL_Joystick *self, PyObj
     return PyLong_FromLong(state);
 }
 
-static PyObject * PySDL_Joystick_GetPlayerIndex(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_GetPlayerIndex_impl(PySDL_Joystick *self, PyObject *ign) {
     SDL_Joystick *js = _js(self);
     return js ? PyLong_FromLong(SDL_GetJoystickPlayerIndex(js)) : NULL;
 }
 
 // SetPlayerIndex(index) - -1 clears it.
-static PyObject * PySDL_Joystick_SetPlayerIndex(PySDL_Joystick *self, PyObject *arg) {
+static PyObject * PySDL_Joystick_SetPlayerIndex_impl(PySDL_Joystick *self, PyObject *arg) {
     int player;
     SDL_Joystick *js = _js_int(self, arg, &player);
     if(NULL == js) return NULL;
@@ -382,7 +408,7 @@ static PyObject * PySDL_Joystick_SetPlayerIndex(PySDL_Joystick *self, PyObject *
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_Joystick_SetVirtualAxis(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_SetVirtualAxis_impl(PySDL_Joystick *self, PyObject *args) {
     int axis, value;
     SDL_Joystick *js = _js(self);
     if(NULL == js || !PyArg_ParseTuple(args, "ii", &axis, &value)) {
@@ -395,7 +421,7 @@ static PyObject * PySDL_Joystick_SetVirtualAxis(PySDL_Joystick *self, PyObject *
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_Joystick_SetVirtualButton(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_SetVirtualButton_impl(PySDL_Joystick *self, PyObject *args) {
     int button, value;
     SDL_Joystick *js = _js(self);
     if(NULL == js || !PyArg_ParseTuple(args, "ii", &button, &value)) {
@@ -408,7 +434,7 @@ static PyObject * PySDL_Joystick_SetVirtualButton(PySDL_Joystick *self, PyObject
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_Joystick_SetVirtualHat(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_SetVirtualHat_impl(PySDL_Joystick *self, PyObject *args) {
     int hat, value;
     SDL_Joystick *js = _js(self);
     if(NULL == js || !PyArg_ParseTuple(args, "ii", &hat, &value)) {
@@ -422,7 +448,7 @@ static PyObject * PySDL_Joystick_SetVirtualHat(PySDL_Joystick *self, PyObject *a
 }
 
 // SetVirtualBall(ball, xrel, yrel) - accumulates until the next update.
-static PyObject * PySDL_Joystick_SetVirtualBall(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_SetVirtualBall_impl(PySDL_Joystick *self, PyObject *args) {
     int ball;
     short xrel, yrel;
     SDL_Joystick *js = _js(self);
@@ -437,7 +463,7 @@ static PyObject * PySDL_Joystick_SetVirtualBall(PySDL_Joystick *self, PyObject *
 }
 
 // SetVirtualTouchpad(touchpad, finger, down, x, y, pressure) - x/y/pressure 0..1
-static PyObject * PySDL_Joystick_SetVirtualTouchpad(PySDL_Joystick *self, PyObject *args) {
+static PyObject * PySDL_Joystick_SetVirtualTouchpad_impl(PySDL_Joystick *self, PyObject *args) {
     int touchpad, finger, down;
     float x, y, pressure;
     SDL_Joystick *js = _js(self);
@@ -453,7 +479,7 @@ static PyObject * PySDL_Joystick_SetVirtualTouchpad(PySDL_Joystick *self, PyObje
 
 // SendVirtualSensorData(type, values, sensor_timestamp=0) - values: 1..16 floats,
 // delivered (if the sensor is enabled) on the next update.
-static PyObject * PySDL_Joystick_SendVirtualSensorData(PySDL_Joystick *self, PyObject *args, PyObject *kwds) {
+static PyObject * PySDL_Joystick_SendVirtualSensorData_impl(PySDL_Joystick *self, PyObject *args, PyObject *kwds) {
     int type;
     PyObject *values;
     unsigned long long timestamp = 0;
@@ -497,7 +523,7 @@ static PyObject * PySDL_Joystick_SendVirtualSensorData(PySDL_Joystick *self, PyO
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_Joystick_Close(PySDL_Joystick *self, PyObject *ign) {
+static PyObject * PySDL_Joystick_Close_impl(PySDL_Joystick *self, PyObject *ign) {
     if(NULL != self->joystick) {
         SDL_CloseJoystick(self->joystick);
     }
@@ -581,14 +607,14 @@ static PyObject * _wrap_open_joystick(SDL_Joystick *js) {
     return PyObject_CallFunction((PyObject *)&PySDL_Joystick_Type, "k", (unsigned long)SDL_GetJoystickID(js));
 }
 
-static PyObject * PySDL_NumJoysticks(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_NumJoysticks_impl(PyObject *self, PyObject *ign) {
     int count = 0;
     SDL_JoystickID *ids = SDL_GetJoysticks(&count);
     SDL_free(ids);
     return PyLong_FromLong(count);
 }
 
-static PyObject * PySDL_GetJoysticks(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_GetJoysticks_impl(PyObject *self, PyObject *ign) {
     int count = 0;
     SDL_JoystickID *ids = SDL_GetJoysticks(&count);
     PyObject *list = PyList_New(count);
@@ -609,7 +635,7 @@ static PyObject * PySDL_GetJoysticks(PyObject *self, PyObject *ign) {
     return list;
 }
 
-static PyObject * PySDL_JoystickNameForIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickNameForIndex_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     if(!_id_arg(arg, &id)) {
         return NULL;
@@ -618,57 +644,57 @@ static PyObject * PySDL_JoystickNameForIndex(PyObject *self, PyObject *arg) {
     return PyUnicode_FromString(name ? name : "");
 }
 
-static PyObject * PySDL_JoystickGetDeviceGUID(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickGetDeviceGUID_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? GUIDToPy(SDL_GetJoystickGUIDForID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickGetDeviceVendor(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickGetDeviceVendor_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyLong_FromLong(SDL_GetJoystickVendorForID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickGetDeviceProduct(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickGetDeviceProduct_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyLong_FromLong(SDL_GetJoystickProductForID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickGetDeviceProductVersion(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickGetDeviceProductVersion_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyLong_FromLong(SDL_GetJoystickProductVersionForID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickGetDeviceType(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickGetDeviceType_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyLong_FromLong(SDL_GetJoystickTypeForID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickGetDevicePlayerIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickGetDevicePlayerIndex_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyLong_FromLong(SDL_GetJoystickPlayerIndexForID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickPathForIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickPathForIndex_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? _str_or_none(SDL_GetJoystickPathForID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickFromInstanceID(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickFromInstanceID_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? _wrap_open_joystick(SDL_GetJoystickFromID(id)) : NULL;
 }
 
-static PyObject * PySDL_JoystickFromPlayerIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickFromPlayerIndex_impl(PyObject *self, PyObject *arg) {
     int player;
     return _int_arg(arg, &player) ? _wrap_open_joystick(SDL_GetJoystickFromPlayerIndex(player)) : NULL;
 }
 
-static PyObject * PySDL_JoystickUpdate(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_JoystickUpdate_impl(PyObject *self, PyObject *ign) {
     SDL_UpdateJoysticks();
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_JoystickEventState(PyObject *self, PyObject *args) {
+static PyObject * PySDL_JoystickEventState_impl(PyObject *self, PyObject *args) {
     PyObject *state = NULL;
     if(!PyArg_ParseTuple(args, "|O", &state)) {
         return NULL;
@@ -681,19 +707,19 @@ static PyObject * PySDL_JoystickEventState(PyObject *self, PyObject *args) {
 
 // Virtual-joystick callbacks run with this lock held: don't hold it across a
 // call that waits on another thread which may be running one.
-static PyObject * PySDL_LockJoysticks(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_LockJoysticks_impl(PyObject *self, PyObject *ign) {
     SDL_LockJoysticks();
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_UnlockJoysticks(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_UnlockJoysticks_impl(PyObject *self, PyObject *ign) {
     SDL_UnlockJoysticks();
     Py_RETURN_NONE;
 }
 
 // GUIDs are 32-char hex strings everywhere else in the binding; these convert
 // to and from the raw 16 bytes. Both accept either form.
-static PyObject * PySDL_GUIDFromString(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GUIDFromString_impl(PyObject *self, PyObject *arg) {
     SDL_GUID guid;
     if(!PyToGUID(arg, &guid)) {
         return NULL;
@@ -701,13 +727,13 @@ static PyObject * PySDL_GUIDFromString(PyObject *self, PyObject *arg) {
     return PyBytes_FromStringAndSize((const char *)guid.data, sizeof(guid.data));
 }
 
-static PyObject * PySDL_GUIDToString(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GUIDToString_impl(PyObject *self, PyObject *arg) {
     SDL_GUID guid;
     return PyToGUID(arg, &guid) ? GUIDToPy(guid) : NULL;
 }
 
 // -> (vendor, product, version, crc16)
-static PyObject * PySDL_GetJoystickGUIDInfo(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GetJoystickGUIDInfo_impl(PyObject *self, PyObject *arg) {
     SDL_GUID guid;
     if(!PyToGUID(arg, &guid)) {
         return NULL;
@@ -919,7 +945,7 @@ static SDL_VirtualJoystickSensorDesc * _sensors(PyObject *src, Uint16 *count) {
 // -> instance id. Only the callbacks given are wired, so e.g. HasRumble()
 // reflects whether rumble= was passed. update() and set_player_index(i) return
 // nothing; the rest report success by returning None or a true value.
-static PyObject * PySDL_JoystickAttachVirtual(PyObject *self, PyObject *args, PyObject *kwds) {
+static PyObject * PySDL_JoystickAttachVirtual_impl(PyObject *self, PyObject *args, PyObject *kwds) {
     int type = SDL_JOYSTICK_TYPE_GAMEPAD;
     int naxes = 0, nbuttons = 0, nhats = 0, nballs = 0;
     unsigned short vendor_id = 0, product_id = 0;
@@ -1038,7 +1064,7 @@ done:
 }
 
 // Detaching runs SDL's Cleanup, which releases the device's callbacks.
-static PyObject * PySDL_JoystickDetachVirtual(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickDetachVirtual_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     if(!_id_arg(arg, &id)) {
         return NULL;
@@ -1050,10 +1076,35 @@ static PyObject * PySDL_JoystickDetachVirtual(PyObject *self, PyObject *arg) {
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_JoystickIsVirtual(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_JoystickIsVirtual_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyBool_FromLong(SDL_IsJoystickVirtual(id)) : NULL;
 }
+
+// Every module function runs holding SDL's joystick lock, taken without the
+// GIL (see PySDL_JoystickLock in pysdl.h).
+PYSDL_JOYSTICK_LOCKED(PySDL_NumJoysticks,                    PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GetJoysticks,                    PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickNameForIndex,            PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickGetDeviceGUID,           PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickGetDeviceVendor,         PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickGetDeviceProduct,        PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickGetDeviceProductVersion, PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickGetDeviceType,           PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickGetDevicePlayerIndex,    PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickPathForIndex,            PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickFromInstanceID,          PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickFromPlayerIndex,         PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickUpdate,                  PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickEventState,              PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_LockJoysticks,                   PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_UnlockJoysticks,                 PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GUIDFromString,                  PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GUIDToString,                    PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GetJoystickGUIDInfo,             PyObject *)
+PYSDL_JOYSTICK_LOCKED_KW(PySDL_JoystickAttachVirtual,        PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickDetachVirtual,           PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_JoystickIsVirtual,               PyObject *)
 
 PyMethodDef pysdl_joystick_methods[] = {
     { "NumJoysticks",           PySDL_NumJoysticks,           METH_NOARGS  },

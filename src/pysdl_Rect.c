@@ -3,6 +3,18 @@
 // Pure geometry helpers over the same tuple/list rects and points the rest of
 // the binding accepts. Registered via PyModule_AddFunctions.
 
+// A line `(x1, y1, x2, y2)` (tuple or list) parsed with `fmt` ("iiii" /
+// "ffff"); 0 with an exception set on bad input.
+static int _parse_line(PyObject *line_py, const char *fmt, void *x1, void *y1, void *x2, void *y2) {
+    PyObject *line = PySequence_Tuple(line_py);
+    if(NULL == line) {
+        return 0;
+    }
+    int ok = PyArg_ParseTuple(line, fmt, x1, y1, x2, y2);
+    Py_DECREF(line);
+    return ok;
+}
+
 //=========================================================
 // integer rects / points
 //=========================================================
@@ -62,7 +74,15 @@ static PyObject * PySDL_EnclosePoints(PyObject *self, PyObject *args) {
         return NULL;
     }
     Py_ssize_t n = PySequence_Fast_GET_SIZE(fast);
-    SDL_Point *points = PyMem_New(SDL_Point, n > 0 ? n : 1);
+    if(0 == n || n > INT_MAX) {
+        Py_DECREF(fast);
+        if(0 == n) {
+            Py_RETURN_NONE;  // nothing to enclose (SDL would set an error)
+        }
+        PyErr_SetString(PyExc_ValueError, "too many points");
+        return NULL;
+    }
+    SDL_Point *points = PyMem_New(SDL_Point, n);
     if(NULL == points) {
         Py_DECREF(fast);
         return PyErr_NoMemory();
@@ -91,7 +111,7 @@ static PyObject * PySDL_IntersectRectAndLine(PyObject *self, PyObject *args) {
     int x1, y1, x2, y2;
     if(!PyArg_ParseTuple(args, "OO", &rect_py, &line_py)
         || !PyToRect(rect_py, &rect)
-        || !PyArg_ParseTuple(line_py, "iiii", &x1, &y1, &x2, &y2)) {
+        || !_parse_line(line_py, "iiii", &x1, &y1, &x2, &y2)) {
         return NULL;
     }
     if(false == SDL_GetRectAndLineIntersection(&rect, &x1, &y1, &x2, &y2)) {
@@ -130,7 +150,7 @@ static PyObject * PySDL_RectEquals(PyObject *self, PyObject *args) {
 }
 
 //=========================================================
-// float rects / points (SDL >= 2.0.22)
+// float rects / points
 //=========================================================
 
 static PyObject * _frect_to_py(const SDL_FRect *rect) {
@@ -200,6 +220,79 @@ static PyObject * PySDL_FRectEquals(PyObject *self, PyObject *args) {
     return PyBool_FromLong(SDL_RectsEqualFloat(&a, &b));
 }
 
+// EncloseFPoints(points, clip=None) -> the smallest float rect holding the
+// points (only those inside clip, if given), or None if none qualify. Unlike
+// the integer version (and SDL2's float one), SDL3 adds no +1: the rect spans
+// exactly min..max, and a clip's far edge x + w is inside.
+static PyObject * PySDL_EncloseFPoints(PyObject *self, PyObject *args) {
+    PyObject *points_py;
+    PyObject *clip_py = Py_None;
+    if(!PyArg_ParseTuple(args, "O|O", &points_py, &clip_py)) {
+        return NULL;
+    }
+
+    SDL_FRect clip;
+    SDL_FRect *clipp = NULL;
+    if(clip_py != Py_None) {
+        if(!PyToFRect(clip_py, &clip)) {
+            return NULL;
+        }
+        clipp = &clip;
+    }
+
+    PyObject *fast = PySequence_Fast(points_py, "expected a list of (x, y) points");
+    if(NULL == fast) {
+        return NULL;
+    }
+    Py_ssize_t n = PySequence_Fast_GET_SIZE(fast);
+    if(0 == n || n > INT_MAX) {
+        Py_DECREF(fast);
+        if(0 == n) {
+            Py_RETURN_NONE;
+        }
+        PyErr_SetString(PyExc_ValueError, "too many points");
+        return NULL;
+    }
+    SDL_FPoint *points = PyMem_New(SDL_FPoint, n);
+    if(NULL == points) {
+        Py_DECREF(fast);
+        return PyErr_NoMemory();
+    }
+    for(Py_ssize_t idx = 0; idx < n; ++idx) {
+        if(!PyToFPoint(PySequence_Fast_GET_ITEM(fast, idx), &points[idx])) {
+            PyMem_Free(points);
+            Py_DECREF(fast);
+            return NULL;
+        }
+    }
+    Py_DECREF(fast);
+
+    SDL_FRect result;
+    bool ok = SDL_GetRectEnclosingPointsFloat(points, (int)n, clipp, &result);
+    PyMem_Free(points);
+    if(!ok) {
+        Py_RETURN_NONE;
+    }
+    return _frect_to_py(&result);
+}
+
+// IntersectFRectAndLine(frect, (x1, y1, x2, y2)) -> the clipped line, or None.
+// The rect's far edges (x + w, y + h) count as inside.
+static PyObject * PySDL_IntersectFRectAndLine(PyObject *self, PyObject *args) {
+    PyObject *rect_py, *line_py;
+    SDL_FRect rect;
+    float x1, y1, x2, y2;
+    if(!PyArg_ParseTuple(args, "OO", &rect_py, &line_py)
+        || !PyToFRect(rect_py, &rect)
+        || !_parse_line(line_py, "ffff", &x1, &y1, &x2, &y2)) {
+        return NULL;
+    }
+    if(!SDL_GetRectAndLineIntersectionFloat(&rect, &x1, &y1, &x2, &y2)) {
+        Py_RETURN_NONE;
+    }
+    return Py_BuildValue("(ffff)", x1, y1, x2, y2);
+}
+
 PyMethodDef pysdl_rect_methods[] = {
     { "HasIntersection",      PySDL_HasIntersection,      METH_VARARGS },
     { "IntersectRect",        PySDL_IntersectRect,        METH_VARARGS },
@@ -215,5 +308,7 @@ PyMethodDef pysdl_rect_methods[] = {
     { "PointInFRect",         PySDL_PointInFRect,         METH_VARARGS },
     { "FRectEmpty",           PySDL_FRectEmpty,           METH_O       },
     { "FRectEquals",          PySDL_FRectEquals,          METH_VARARGS },
+    { "EncloseFPoints",       PySDL_EncloseFPoints,       METH_VARARGS },
+    { "IntersectFRectAndLine", PySDL_IntersectFRectAndLine, METH_VARARGS },
     { NULL }
 };

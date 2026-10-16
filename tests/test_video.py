@@ -363,3 +363,154 @@ def test_quit_subsystem_without_video_keeps_software_renderer(sdl):
         SDL3.Quit()
         assert raises(software.Clear) and raises(texture.Query)
     ''')
+
+
+# --- phase 13: hint callbacks ----------------------------------------------
+
+HINT = 'SDL_PYSDL3_TEST_CALLBACK'  # SDL keeps any name; nothing else watches this one
+
+
+@pytest.fixture
+def clean_hint(sdl):
+    sdl.ResetHint(HINT)
+    yield HINT
+    sdl.ResetHint(HINT)
+
+
+def test_hint_callback_lifecycle(sdl, clean_hint):
+    sdl.SetHint(HINT, 'nearest')
+    calls = []
+    cb = lambda *args: calls.append(args)  # noqa: E731
+    sdl.AddHintCallback(HINT, cb)
+    assert calls == [(HINT, 'nearest', 'nearest')]  # called once right away
+
+    sdl.SetHint(HINT, 'linear')
+    assert calls[-1] == (HINT, 'nearest', 'linear')
+    sdl.SetHint(HINT, 'linear')  # unchanged: no call
+    assert len(calls) == 2
+
+    sdl.AddHintCallback(HINT, cb)  # re-adding only repeats the first call
+    assert calls[-1] == (HINT, 'linear', 'linear')
+    before = len(calls)
+    sdl.SetHint(HINT, 'best')
+    assert len(calls) - before == 1
+
+    sdl.RemoveHintCallback(HINT, cb)
+    before = len(calls)
+    sdl.SetHint(HINT, 'nearest')
+    assert len(calls) == before
+    with pytest.raises(ValueError):
+        sdl.DelHintCallback(HINT, cb)  # pysdl2's name
+
+
+def test_hint_callbacks_for_one_hint(sdl, clean_hint):
+    calls = []
+    first = lambda name, old, new: calls.append(('first', new))  # noqa: E731
+    second = lambda name, old, new: calls.append(('second', new))  # noqa: E731
+    sdl.AddHintCallback(HINT, first)
+    sdl.AddHintCallback(HINT, second)  # its own first call only
+    assert calls == [('first', None), ('second', None)]
+    sdl.SetHint(HINT, 'x')
+    assert calls[2:] == [('first', 'x'), ('second', 'x')]
+    sdl.DelHintCallback(HINT, first)
+    sdl.DelHintCallback(HINT, second)
+
+
+def test_hint_callback_can_remove_itself_and_others(sdl, clean_hint):
+    # SDL walks a hint's callbacks keeping only the next node, so a callback
+    # removing a *later* one would have it visit freed memory; the binding
+    # gives SDL one node per hint and skips removed callbacks itself.
+    calls = []
+
+    def first(name, old, new):
+        calls.append(('first', new))
+        if new == 'go':
+            sdl.DelHintCallback(name, first)
+            sdl.DelHintCallback(name, second)
+
+    def second(name, old, new):
+        calls.append(('second', new))
+
+    sdl.AddHintCallback(HINT, first)
+    sdl.AddHintCallback(HINT, second)
+    calls.clear()
+    sdl.SetHint(HINT, 'go')
+    sdl.SetHint(HINT, 'again')
+    assert calls == [('first', 'go')]
+
+
+def test_reset_hints_keeps_callbacks(sdl, clean_hint):
+    # SDL3 has no SDL_ClearHints: ClearHints is ResetHints, which resets values
+    # (callbacks see the change) and keeps the callbacks.
+    sdl.SetHint(HINT, 'linear')
+    calls = []
+    cb = lambda *args: calls.append(args)  # noqa: E731
+    sdl.AddHintCallback(HINT, cb)
+    sdl.ResetHints()
+    assert calls[-1] == (HINT, 'linear', None)
+    assert sdl.GetHint(HINT) is None
+    sdl.SetHint(HINT, 'nearest')
+    assert calls[-1] == (HINT, None, 'nearest')
+    sdl.ClearHints()
+    assert calls[-1] == (HINT, 'nearest', None)
+    sdl.SetHint(HINT, 'best')
+    sdl.ResetHint(HINT)
+    assert calls[-1] == (HINT, 'best', None)
+    sdl.RemoveHintCallback(HINT, cb)
+
+
+def test_hint_callback_errors(sdl, clean_hint, capsys):
+    with pytest.raises(TypeError):
+        sdl.AddHintCallback(HINT, 'not callable')
+    with pytest.raises(ValueError):
+        sdl.RemoveHintCallback(HINT, lambda *args: None)
+
+    def broken(name, old, new):
+        raise RuntimeError('hint callback failed')
+
+    sdl.AddHintCallback(HINT, broken)  # the first call's error is printed too
+    sdl.SetHint(HINT, 'x')
+    sdl.RemoveHintCallback(HINT, broken)
+    assert capsys.readouterr().err.count('RuntimeError: hint callback failed') == 2
+
+
+def test_hint_callback_releases_callable(sdl, clean_hint):
+    import gc
+    import weakref
+
+    class Callback:
+        def __call__(self, name, old, new):
+            pass
+
+    cb = Callback()
+    ref = weakref.ref(cb)
+    sdl.AddHintCallback(HINT, cb)
+    del cb
+    gc.collect()
+    assert ref() is not None
+    sdl.RemoveHintCallback(HINT, ref())
+    gc.collect()
+    assert ref() is None
+
+
+def test_quit_drops_hint_callbacks(sdl):
+    # SDL_Quit frees every hint (and its callbacks); the binding forgets its
+    # registrations, and a new session can register the same callback again.
+    _run_teardown_script(sdl, f'''
+        calls = []
+        cb = lambda *args: calls.append(args)
+        SDL3.AddHintCallback({HINT!r}, cb)
+        SDL3.Quit()
+        try:
+            SDL3.RemoveHintCallback({HINT!r}, cb)
+            raise SystemExit('callback still registered')
+        except ValueError:
+            pass
+        SDL3.SetHint({HINT!r}, 'after')
+        assert calls == [({HINT!r}, None, None)]
+        SDL3.Init(SDL3.INIT_VIDEO)
+        SDL3.AddHintCallback({HINT!r}, cb)
+        SDL3.SetHint({HINT!r}, 'again')
+        assert calls[-1] == ({HINT!r}, 'after', 'again'), calls
+        SDL3.Quit()
+    ''')

@@ -85,6 +85,9 @@ static PyObject * PySDL_IsScreenSaverEnabled     (PyObject*, PyObject*);
 static PyObject * PySDL_GetClipboardText         (PyObject*, PyObject*);
 static PyObject * PySDL_SetClipboardText         (PyObject*, PyObject*);
 static PyObject * PySDL_HasClipboardText         (PyObject*, PyObject*);
+static PyObject * PySDL_GetPrimarySelectionText  (PyObject*, PyObject*);
+static PyObject * PySDL_SetPrimarySelectionText  (PyObject*, PyObject*);
+static PyObject * PySDL_HasPrimarySelectionText  (PyObject*, PyObject*);
 
 static PyMethodDef pysdl_PyMethodDefs[] = {
     { "Init",                  PySDL_Init,                  METH_VARARGS },
@@ -93,6 +96,7 @@ static PyMethodDef pysdl_PyMethodDefs[] = {
     { "WasInit",               PySDL_WasInit,               METH_VARARGS },
     { "Quit",                  PySDL_Quit,                  METH_NOARGS  },
     { "GetError",              PySDL_GetError,              METH_NOARGS  },
+    { "GetErrorMsg",           PySDL_GetError,              METH_NOARGS  },  // pysdl2 name; SDL3's GetError is per-thread already
     { "Version",               PySDL_Version,               METH_NOARGS  },
     { "GetPlatform",           PySDL_GetPlatform,           METH_NOARGS  },
     { "GetCurrentVideoDriver", PySDL_GetCurrentVideoDriver, METH_NOARGS  },
@@ -170,6 +174,9 @@ static PyMethodDef pysdl_PyMethodDefs[] = {
     { "GetClipboardText",         PySDL_GetClipboardText,         METH_NOARGS  },
     { "SetClipboardText",         PySDL_SetClipboardText,         METH_O       },
     { "HasClipboardText",         PySDL_HasClipboardText,         METH_NOARGS  },
+    { "GetPrimarySelectionText",  PySDL_GetPrimarySelectionText,  METH_NOARGS  },
+    { "SetPrimarySelectionText",  PySDL_SetPrimarySelectionText,  METH_O       },
+    { "HasPrimarySelectionText",  PySDL_HasPrimarySelectionText,  METH_NOARGS  },
 
     { NULL }
 };
@@ -268,12 +275,23 @@ PyObject * PySDL_New(PyTypeObject *type) {
 #define PYSDL_INIT_DEFAULT \
     (SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)
 
+// Init / Quit drop the GIL around SDL: shutting a subsystem down waits for
+// SDL threads that may be inside a Python callback waiting for the GIL (the
+// timer thread joined by SDL_QuitTimers, an audio device thread holding its
+// device while SDL_QuitAudio closes it, a virtual joystick's callback holding
+// the joystick lock that init / quit take). The binding's own bookkeeping
+// (what was running, invalidating wrappers) happens with the GIL held, before
+// and after. Other threads must not use SDL while these run.
 static PyObject * PySDL_Init(PyObject *self, PyObject *args) {
     unsigned int flags = PYSDL_INIT_DEFAULT;
     if(!PyArg_ParseTuple(args, "|I", &flags)) {
         return NULL;
     }
-    if(!SDL_Init((SDL_InitFlags)flags)) {
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_Init((SDL_InitFlags)flags);
+    Py_END_ALLOW_THREADS
+    if(!ok) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
@@ -293,7 +311,11 @@ static PyObject * PySDL_InitSubSystem(PyObject *self, PyObject *arg) {
     if((unsigned long)-1 == flags && PyErr_Occurred()) {
         return NULL;
     }
-    if(!SDL_InitSubSystem((SDL_InitFlags)flags)) {
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_InitSubSystem((SDL_InitFlags)flags);
+    Py_END_ALLOW_THREADS
+    if(!ok) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
@@ -306,18 +328,32 @@ static PyObject * PySDL_QuitSubSystem(PyObject *self, PyObject *arg) {
         return NULL;
     }
     // Subsystems are refcounted: only if video was running and really stopped
-    // (a software renderer on a Surface lives without video).
+    // (a software renderer on a Surface lives without video). Likewise the
+    // event subsystem, which takes the event filter and watchers with it.
     bool video = NULL != SDL_GetCurrentVideoDriver();
-    SDL_QuitSubSystem((SDL_InitFlags)flags);
+    bool events = 0 != SDL_WasInit(SDL_INIT_EVENTS);
+    Py_BEGIN_ALLOW_THREADS
+        SDL_QuitSubSystem((SDL_InitFlags)flags);
+    Py_END_ALLOW_THREADS
     if(video) {
         PySDL_CheckVideoGone();
+    }
+    if(events && 0 == SDL_WasInit(SDL_INIT_EVENTS)) {
+        PySDL_EventWatchesGone();
     }
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Quit(PyObject *self, PyObject *ign) {
-    SDL_Quit();
-    PySDL_InvalidateWindows();  // SDL_Quit destroyed every window and renderer
+    bool events = 0 != SDL_WasInit(SDL_INIT_EVENTS);
+    Py_BEGIN_ALLOW_THREADS
+        SDL_Quit();
+    Py_END_ALLOW_THREADS
+    PySDL_InvalidateWindows();  // SDL_Quit destroyed every window, renderer and cursor
+    if(events) {
+        PySDL_EventWatchesGone();
+    }
+    PySDL_HintCallbacksGone();  // SDL_QuitHints freed them
     Py_RETURN_NONE;
 }
 
@@ -968,12 +1004,18 @@ static PyObject * PySDL_GetClipboardText(PyObject *self, PyObject *ign) {
     return result;
 }
 
+// Setting the clipboard pushes EVENT_CLIPBOARD_UPDATE, so the GIL is dropped
+// (see the GIL rule in pysdl_Events.c).
 static PyObject * PySDL_SetClipboardText(PyObject *self, PyObject *arg) {
     const char *text = PyUnicode_AsUTF8(arg);
     if(NULL == text) {
         return NULL;
     }
-    if(!SDL_SetClipboardText(text)) {
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_SetClipboardText(text);
+    Py_END_ALLOW_THREADS
+    if(!ok) {
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
@@ -982,4 +1024,33 @@ static PyObject * PySDL_SetClipboardText(PyObject *self, PyObject *arg) {
 
 static PyObject * PySDL_HasClipboardText(PyObject *self, PyObject *ign) {
     return PyBool_FromLong(SDL_HasClipboardText());
+}
+
+// The X11 / Wayland primary selection (middle-click paste). Where the video
+// driver has none, SDL keeps the text itself, so it still round-trips.
+static PyObject * PySDL_GetPrimarySelectionText(PyObject *self, PyObject *ign) {
+    char *text = SDL_GetPrimarySelectionText();
+    PyObject *result = PyUnicode_FromString(text ? text : "");
+    SDL_free(text);
+    return result;
+}
+
+static PyObject * PySDL_SetPrimarySelectionText(PyObject *self, PyObject *arg) {
+    const char *text = PyUnicode_AsUTF8(arg);
+    if(NULL == text) {
+        return NULL;
+    }
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_SetPrimarySelectionText(text);
+    Py_END_ALLOW_THREADS
+    if(!ok) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject * PySDL_HasPrimarySelectionText(PyObject *self, PyObject *ign) {
+    return PyBool_FromLong(SDL_HasPrimarySelectionText());
 }

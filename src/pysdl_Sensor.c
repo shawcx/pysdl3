@@ -26,7 +26,7 @@ PyTypeObject PySDL_Sensor_Type = {
     .tp_basicsize = sizeof(PySDL_Sensor),
     .tp_dealloc   = (destructor)PySDL_Sensor_Type_dealloc,
     .tp_flags     = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_doc       = "SDL3.Sensor(device_index)",
+    .tp_doc       = "SDL3.Sensor(instance_id)",
     .tp_methods   = PySDL_Sensor_methods,
     .tp_init      = (initproc)PySDL_Sensor_Type_init,
     .tp_new       = PyType_GenericNew
@@ -170,6 +170,27 @@ static PyObject * PySDL_SensorGetDeviceType(PyObject *self, PyObject *arg) {
     return PyLong_FromLong(SDL_GetSensorTypeForID((SDL_SensorID)id));
 }
 
+static PyObject * PySDL_SensorGetDeviceNonPortableType(PyObject *self, PyObject *arg) {
+    unsigned long id = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == id && PyErr_Occurred()) {
+        return NULL;
+    }
+    return PyLong_FromLong(SDL_GetSensorNonPortableTypeForID((SDL_SensorID)id));  // -1 if unknown
+}
+
+// SensorFromInstanceID(id) -> a new, owned Sensor for an already-open one
+// (re-opening by ID bumps SDL's refcount, as the joystick lookups do), or None.
+static PyObject * PySDL_SensorFromInstanceID(PyObject *self, PyObject *arg) {
+    unsigned long id = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == id && PyErr_Occurred()) {
+        return NULL;
+    }
+    if(NULL == SDL_GetSensorFromID((SDL_SensorID)id)) {
+        Py_RETURN_NONE;
+    }
+    return PyObject_CallFunction((PyObject *)&PySDL_Sensor_Type, "k", id);
+}
+
 static PyObject * PySDL_SensorGetDeviceInstanceID(PyObject *self, PyObject *arg) {
     // In SDL3 the "device" is already identified by its SDL_SensorID.
     return Py_NewRef(arg);
@@ -186,6 +207,11 @@ PyMethodDef pysdl_sensor_methods[] = {
     { "SensorGetDeviceName",        PySDL_SensorGetDeviceName,        METH_O      },
     { "GetSensorNameForID",         PySDL_SensorGetDeviceName,        METH_O      },
     { "SensorGetDeviceType",        PySDL_SensorGetDeviceType,        METH_O      },
+    { "GetSensorTypeForID",         PySDL_SensorGetDeviceType,        METH_O      },
+    { "SensorGetDeviceNonPortableType", PySDL_SensorGetDeviceNonPortableType, METH_O },
+    { "GetSensorNonPortableTypeForID",  PySDL_SensorGetDeviceNonPortableType, METH_O },
+    { "SensorFromInstanceID",       PySDL_SensorFromInstanceID,       METH_O      },
+    { "GetSensorFromID",            PySDL_SensorFromInstanceID,       METH_O      },
     { "SensorGetDeviceInstanceID",  PySDL_SensorGetDeviceInstanceID,  METH_O      },
     { "SensorUpdate",               PySDL_SensorUpdate,               METH_NOARGS },
     { NULL }

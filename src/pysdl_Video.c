@@ -250,13 +250,21 @@ static PyObject * PySDL_ShowMessageBox(PyObject *self, PyObject *arg) {
 // hints
 //=========================================================
 
+// SDL runs hint callbacks with its hint lock held, and ours then take the GIL,
+// so every call that sets, resets or reads a hint (or adds a callback) drops
+// the GIL around SDL - the same rule as the event queue (pysdl_Events.c).
+
 static PyObject * PySDL_SetHint(PyObject *self, PyObject *args) {
     const char *name;
     const char *value;
     if(!PyArg_ParseTuple(args, "ss", &name, &value)) {
         return NULL;
     }
-    return PyBool_FromLong(SDL_SetHint(name, value));
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_SetHint(name, value);
+    Py_END_ALLOW_THREADS
+    return PyBool_FromLong(ok);
 }
 
 static PyObject * PySDL_SetHintWithPriority(PyObject *self, PyObject *args) {
@@ -266,7 +274,25 @@ static PyObject * PySDL_SetHintWithPriority(PyObject *self, PyObject *args) {
     if(!PyArg_ParseTuple(args, "ssi", &name, &value, &priority)) {
         return NULL;
     }
-    return PyBool_FromLong(SDL_SetHintWithPriority(name, value, (SDL_HintPriority)priority));
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_SetHintWithPriority(name, value, (SDL_HintPriority)priority);
+    Py_END_ALLOW_THREADS
+    return PyBool_FromLong(ok);
+}
+
+// The hint's value as a new str, or None. SDL_GetHint's string stays valid
+// on this thread (SDL keeps a per-thread copy), so it is read after the GIL
+// is back.
+static PyObject * _hint_value(const char *name) {
+    const char *value;
+    Py_BEGIN_ALLOW_THREADS
+        value = SDL_GetHint(name);
+    Py_END_ALLOW_THREADS
+    if(NULL == value) {
+        Py_RETURN_NONE;
+    }
+    return PyUnicode_FromString(value);
 }
 
 static PyObject * PySDL_GetHint(PyObject *self, PyObject *arg) {
@@ -274,11 +300,7 @@ static PyObject * PySDL_GetHint(PyObject *self, PyObject *arg) {
     if(NULL == name) {
         return NULL;
     }
-    const char *value = SDL_GetHint(name);
-    if(NULL == value) {
-        Py_RETURN_NONE;
-    }
-    return PyUnicode_FromString(value);
+    return _hint_value(name);
 }
 
 static PyObject * PySDL_GetHintBoolean(PyObject *self, PyObject *args) {
@@ -287,20 +309,179 @@ static PyObject * PySDL_GetHintBoolean(PyObject *self, PyObject *args) {
     if(!PyArg_ParseTuple(args, "s|p", &name, &default_value)) {
         return NULL;
     }
-    return PyBool_FromLong(SDL_GetHintBoolean(name, default_value ? true : false));
+    bool value;
+    Py_BEGIN_ALLOW_THREADS
+        value = SDL_GetHintBoolean(name, default_value ? true : false);
+    Py_END_ALLOW_THREADS
+    return PyBool_FromLong(value);
 }
 
+// Back to the default (environment) value; callbacks stay and fire.
 static PyObject * PySDL_ResetHint(PyObject *self, PyObject *arg) {
     const char *name = PyUnicode_AsUTF8(arg);
     if(NULL == name) {
         return NULL;
     }
-    return PyBool_FromLong(SDL_ResetHint(name));
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_ResetHint(name);
+    Py_END_ALLOW_THREADS
+    return PyBool_FromLong(ok);
 }
 
-static PyObject * PySDL_ClearHints(PyObject *self, PyObject *ign) {
-    SDL_ResetHints();
+// SDL3 has no SDL_ClearHints: ClearHints is ResetHints, every hint back to its
+// default; unlike SDL2's ClearHints it keeps the callbacks (SDL_Quit drops them).
+static PyObject * PySDL_ResetHints(PyObject *self, PyObject *ign) {
+    Py_BEGIN_ALLOW_THREADS
+        SDL_ResetHints();
+    Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
+}
+
+//---------------------------------------------------------
+// hint callbacks
+//---------------------------------------------------------
+
+// SDL is never handed a Python object. Each watched hint name gets exactly
+// one SDL callback - _c_hint_callback, userdata NULL - added with the first
+// Python callback for that name and then left in place: SDL walks a hint's
+// callback list saving only the next node, so removing a node other than the
+// one running (one callback dropping another) would free the node SDL visits
+// next. The Python callables live in _hint_callbacks (name -> list, in
+// registration order; a key means SDL has our callback), read under the GIL.
+// SDL_Quit frees every hint callback: PySDL_HintCallbacksGone empties it.
+static PyObject *_hint_callbacks = NULL;
+
+static Py_ssize_t _hint_index(PyObject *list, PyObject *callable) {
+    for(Py_ssize_t idx = 0; idx < PyList_GET_SIZE(list); ++idx) {
+        if(PyList_GET_ITEM(list, idx) == callable) {
+            return idx;
+        }
+    }
+    return -1;
+}
+
+// SDL calls this with its hint lock held, on the thread that changed the hint
+// (possibly from inside another SDL call), so a pending exception is set aside.
+static void SDLCALL _c_hint_callback(void *userdata, const char *name, const char *old, const char *new_) {
+    (void)userdata;
+    PyGILState_STATE gil;
+    if(!PySDL_ThreadEnter(&gil)) {
+        return;
+    }
+    PyObject *etype, *evalue, *etb;
+    PyErr_Fetch(&etype, &evalue, &etb);
+
+    PyObject *list = _hint_callbacks ? PyDict_GetItemString(_hint_callbacks, name) : NULL;
+    // A snapshot, since a callback may add or remove callbacks; each is still
+    // checked for membership, so one removed by an earlier one is skipped.
+    PyObject *snapshot = list ? PyList_GetSlice(list, 0, PyList_GET_SIZE(list)) : NULL;
+    for(Py_ssize_t idx = 0; snapshot && idx < PyList_GET_SIZE(snapshot); ++idx) {
+        PyObject *callable = PyList_GET_ITEM(snapshot, idx);
+        list = PyDict_GetItemString(_hint_callbacks, name);
+        if(NULL == list || 0 > _hint_index(list, callable)) {
+            continue;
+        }
+        PyObject *result = PyObject_CallFunction(callable, "szz", name, old, new_);
+        if(NULL == result) {
+            PyErr_Print();
+        }
+        Py_XDECREF(result);
+    }
+    Py_XDECREF(snapshot);
+    if(PyErr_Occurred()) {
+        PyErr_Print();
+    }
+
+    PyErr_Restore(etype, evalue, etb);
+    PySDL_ThreadLeave(gil);
+}
+
+// AddHintCallback(name, callback): callback(name, old, new) runs now with the
+// current value (old == new), then on every change of that hint (None when
+// unset), on the thread that changed it. Adding the same callback again only
+// repeats that first call, as in SDL.
+static PyObject * PySDL_AddHintCallback(PyObject *self, PyObject *args) {
+    const char *name;
+    PyObject *callable;
+    if(!PyArg_ParseTuple(args, "sO", &name, &callable)) {
+        return NULL;
+    }
+    if(!PyCallable_Check(callable)) {
+        PyErr_SetString(PyExc_TypeError, "callback must be callable");
+        return NULL;
+    }
+    if(NULL == _hint_callbacks && NULL == (_hint_callbacks = PyDict_New())) {
+        return NULL;
+    }
+
+    PyObject *list = PyDict_GetItemString(_hint_callbacks, name);
+    if(NULL != list) {
+        // SDL already calls us for this hint: register and make the first call here.
+        if(0 > _hint_index(list, callable) && 0 > PyList_Append(list, callable)) {
+            return NULL;
+        }
+        PyObject *value = _hint_value(name);
+        if(NULL == value) {
+            return NULL;
+        }
+        PyObject *result = PyObject_CallFunction(callable, "sOO", name, value, value);
+        Py_DECREF(value);
+        if(NULL == result) {
+            PyErr_Print();  // as when SDL makes that call
+        }
+        Py_XDECREF(result);
+        Py_RETURN_NONE;
+    }
+
+    list = PyList_New(0);
+    if(NULL == list || 0 > PyList_Append(list, callable) || 0 > PyDict_SetItemString(_hint_callbacks, name, list)) {
+        Py_XDECREF(list);
+        return NULL;
+    }
+    Py_DECREF(list);  // the dict holds it
+
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_AddHintCallback(name, _c_hint_callback, NULL);  // calls it once right away
+    Py_END_ALLOW_THREADS
+    if(!ok) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+        PyObject *etype, *evalue, *etb;
+        PyErr_Fetch(&etype, &evalue, &etb);
+        if(0 > PyDict_DelItemString(_hint_callbacks, name)) {
+            PyErr_Clear();
+        }
+        PyErr_Restore(etype, evalue, etb);
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+// RemoveHintCallback(name, callback) / DelHintCallback: ValueError if that
+// callback is not registered for that hint.
+static PyObject * PySDL_RemoveHintCallback(PyObject *self, PyObject *args) {
+    const char *name;
+    PyObject *callable;
+    if(!PyArg_ParseTuple(args, "sO", &name, &callable)) {
+        return NULL;
+    }
+    PyObject *list = _hint_callbacks ? PyDict_GetItemString(_hint_callbacks, name) : NULL;
+    Py_ssize_t idx = list ? _hint_index(list, callable) : -1;
+    if(0 > idx) {
+        PyErr_Format(PyExc_ValueError, "callback is not registered for hint %s", name);
+        return NULL;
+    }
+    if(0 > PySequence_DelItem(list, idx)) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+void PySDL_HintCallbacksGone(void) {
+    if(NULL != _hint_callbacks) {
+        PyDict_Clear(_hint_callbacks);
+    }
 }
 
 //=========================================================
@@ -467,7 +648,11 @@ PyMethodDef pysdl_video_methods[] = {
     { "GetHint",                  PySDL_GetHint,                  METH_O       },
     { "GetHintBoolean",           PySDL_GetHintBoolean,           METH_VARARGS },
     { "ResetHint",                PySDL_ResetHint,                METH_O       },
-    { "ClearHints",               PySDL_ClearHints,               METH_NOARGS  },
+    { "ResetHints",               PySDL_ResetHints,               METH_NOARGS  },
+    { "ClearHints",               PySDL_ResetHints,               METH_NOARGS  },
+    { "AddHintCallback",          PySDL_AddHintCallback,          METH_VARARGS },
+    { "RemoveHintCallback",       PySDL_RemoveHintCallback,       METH_VARARGS },
+    { "DelHintCallback",          PySDL_RemoveHintCallback,       METH_VARARGS },
 
     { "OpenURL",                  PySDL_OpenURL,                  METH_O       },
     { "GetPreferredLocales",      PySDL_GetPreferredLocales,      METH_NOARGS  },

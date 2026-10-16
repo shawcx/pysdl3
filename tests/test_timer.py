@@ -135,3 +135,72 @@ def test_timer_can_remove_itself(sdl):
     time.sleep(0.05)  # removed itself: no second call may follow
     assert len(fired) == 1
     assert holder['timer'].id == 0
+
+
+def _run_script(sdl, code, timeout=20):
+    '''Run `code` in a fresh interpreter, killed after `timeout` s so a
+    deadlock fails the test instead of hanging the suite; it must print "ok".'''
+    import os
+    import subprocess
+    import sys
+    import textwrap
+    env = dict(os.environ, PYTHONPATH=os.path.dirname(sdl.__file__))
+    try:
+        out = subprocess.run([sys.executable, '-c', textwrap.dedent(code)], env=env,
+                             capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        pytest.fail('deadlocked (timed out)')
+    assert out.returncode == 0 and out.stdout.strip().endswith('ok'), out.stderr or out.stdout
+
+
+def test_quit_while_a_timer_callback_runs(sdl):
+    '''Regression (phase 13): SDL_Quit joins the timer thread, which may be in
+    a Python callback waiting for the GIL - Remove() doesn't wait for a call
+    already under way - so Quit holding the GIL deadlocked within a few of
+    these cycles. Init / InitSubSystem / QuitSubSystem / Quit drop the GIL.'''
+    _run_script(sdl, '''
+        import time, SDL3
+
+        def tick(interval):
+            sum(range(3000))  # long enough to be preempted
+            return interval
+
+        for _ in range(100):
+            SDL3.Init(SDL3.INIT_EVENTS)
+            timers = [SDL3.Timer(1, tick) for _ in range(3)]
+            deadline = time.monotonic() + 0.005
+            while time.monotonic() < deadline:
+                sum(range(100))
+            timers[0].Remove()
+            SDL3.Quit()
+            del timers
+        print('ok')
+    ''')
+
+
+def test_quit_audio_while_its_callback_runs(sdl):
+    '''Same cycle through QuitSubSystem(INIT_AUDIO): SDL_QuitAudio closes the
+    device while its thread holds it inside the Python playback callback.
+    The Audio objects are never freed (os._exit): one kept past the audio
+    subsystem still crashes in its dealloc, a separate, older bug.'''
+    _run_script(sdl, '''
+        import os, time, SDL3
+        keep = []
+
+        def callback(size, userdata):
+            sum(range(3000))
+            return b'\\x00' * size
+
+        for _ in range(30):
+            SDL3.InitSubSystem(SDL3.INIT_AUDIO)
+            audio = SDL3.Audio()
+            audio.Open(freq=48000, channels=1, samples=256, callback=callback)
+            audio.Pause(0)
+            deadline = time.monotonic() + 0.02
+            while time.monotonic() < deadline:
+                sum(range(100))
+            SDL3.QuitSubSystem(SDL3.INIT_AUDIO)
+            keep.append(audio)
+        print('ok', flush=True)
+        os._exit(0)
+    ''')

@@ -1,7 +1,16 @@
 #include "pysdl.h"
 
 // The event queue: the `_event()` converter (SDL_Event -> (type, data)), the
-// pump/poll/wait/peep/push functions, and an optional Python event filter.
+// pump/poll/wait/peep/push functions, an optional Python event filter, and
+// event watchers.
+//
+// GIL rule: SDL runs the filter and the watchers under its event-watcher lock,
+// on whichever thread pushed the event (SDL_SetEventFilter also runs the new
+// filter over the queue holding the queue lock), and our trampolines then take
+// the GIL - which the Python callback may hand to another thread mid-call. So
+// every call here that can take either lock (anything that pushes, pumps,
+// polls, peeks or flushes, or (un)registers a filter / watch) drops the GIL
+// first; holding it there deadlocks against a callback on another thread.
 // Registered in PyInit_SDL3 via PyModule_AddFunctions(module, pysdl_events_methods).
 
 //=========================================================
@@ -145,18 +154,25 @@ static PyObject * _event(SDL_Event *event) {
     return Py_BuildValue("(IN)", event->type, data);
 }
 
+
 //=========================================================
 // pump / poll / wait
 //=========================================================
 
 static PyObject * PySDL_PumpEvents(PyObject *self, PyObject *ign) {
-    SDL_PumpEvents();
+    Py_BEGIN_ALLOW_THREADS
+        SDL_PumpEvents();
+    Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_PollEvent(PyObject *self, PyObject *ign) {
     SDL_Event event;
-    if(!SDL_PollEvent(&event)) {
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_PollEvent(&event);
+    Py_END_ALLOW_THREADS
+    if(!ok) {
         Py_RETURN_NONE;
     }
     return _event(&event);
@@ -212,7 +228,10 @@ static PyObject * PySDL_PushEvent(PyObject *self, PyObject *args, PyObject *kwds
 
     // SDL3 returns false when a filter drops the event (no error set) as well as
     // on real failure; surface the former as False, the latter as an exception.
-    bool ok = SDL_PushEvent(&event);
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_PushEvent(&event);
+    Py_END_ALLOW_THREADS
     if(!ok) {
         const char *err = SDL_GetError();
         if(err && err[0]) {
@@ -278,7 +297,9 @@ static PyObject * PySDL_FlushEvent(PyObject *self, PyObject *arg) {
     if(-1 == type && PyErr_Occurred()) {
         return NULL;
     }
-    SDL_FlushEvent((Uint32)type);
+    Py_BEGIN_ALLOW_THREADS
+        SDL_FlushEvent((Uint32)type);
+    Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }
 
@@ -288,7 +309,9 @@ static PyObject * PySDL_FlushEvents(PyObject *self, PyObject *args) {
     if(!PyArg_ParseTuple(args, "|II", &minType, &maxType)) {
         return NULL;
     }
-    SDL_FlushEvents(minType, maxType);
+    Py_BEGIN_ALLOW_THREADS
+        SDL_FlushEvents(minType, maxType);
+    Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }
 
@@ -297,7 +320,11 @@ static PyObject * PySDL_HasEvent(PyObject *self, PyObject *arg) {
     if(-1 == type && PyErr_Occurred()) {
         return NULL;
     }
-    return PyBool_FromLong(SDL_HasEvent((Uint32)type));
+    bool has;
+    Py_BEGIN_ALLOW_THREADS
+        has = SDL_HasEvent((Uint32)type);
+    Py_END_ALLOW_THREADS
+    return PyBool_FromLong(has);
 }
 
 static PyObject * PySDL_HasEvents(PyObject *self, PyObject *args) {
@@ -306,7 +333,11 @@ static PyObject * PySDL_HasEvents(PyObject *self, PyObject *args) {
     if(!PyArg_ParseTuple(args, "|II", &minType, &maxType)) {
         return NULL;
     }
-    return PyBool_FromLong(SDL_HasEvents(minType, maxType));
+    bool has;
+    Py_BEGIN_ALLOW_THREADS
+        has = SDL_HasEvents(minType, maxType);
+    Py_END_ALLOW_THREADS
+    return PyBool_FromLong(has);
 }
 
 static PyObject * PySDL_RegisterEvents(PyObject *self, PyObject *arg) {
@@ -330,7 +361,9 @@ static PyObject * PySDL_EventState(PyObject *self, PyObject *args) {
         return NULL;
     }
     bool was = SDL_EventEnabled(type);
-    SDL_SetEventEnabled(type, state ? true : false);
+    Py_BEGIN_ALLOW_THREADS  // disabling flushes that type from the queue
+        SDL_SetEventEnabled(type, state ? true : false);
+    Py_END_ALLOW_THREADS
     return PyBool_FromLong(was);
 }
 
@@ -343,70 +376,104 @@ static PyObject * PySDL_GetEventState(PyObject *self, PyObject *arg) {
 }
 
 static PyObject * PySDL_QuitRequested(PyObject *self, PyObject *ign) {
-    SDL_PumpEvents();
-    int pending = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_QUIT, SDL_EVENT_QUIT);
+    int pending;
+    Py_BEGIN_ALLOW_THREADS
+        SDL_PumpEvents();
+        pending = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_QUIT, SDL_EVENT_QUIT);
+    Py_END_ALLOW_THREADS
     return PyBool_FromLong(pending > 0);
 }
 
 //=========================================================
-// event filter (optional / advanced)
+// event filter and watchers
 //=========================================================
 
-static PyObject *_py_event_filter = NULL;
-
-// Run `callable` on the converted event; returns true to keep it, false to drop.
-static bool _run_filter(PyObject *callable, SDL_Event *event) {
-    PyGILState_STATE gil;
-    if(!PySDL_ThreadEnter(&gil)) {
-        return true;  // interpreter gone: keep the event, do nothing
-    }
-
+// Call `callable(event)` and return whether to keep the event: its truth, or
+// true on an error (printed). The GIL is held and no exception is pending.
+static bool _call_filter(PyObject *callable, SDL_Event *event) {
+    // Hold our own reference: the callable may unregister itself mid-call.
+    Py_INCREF(callable);
     bool keep = true;
     PyObject *converted = _event(event);
-    if(NULL == converted) {
-        PyErr_Print();
-    } else {
-        PyObject *result = PyObject_CallFunctionObjArgs(callable, converted, NULL);
-        Py_DECREF(converted);
-        if(NULL == result) {
-            PyErr_Print();
-        } else {
-            int truth = PyObject_IsTrue(result);
-            Py_DECREF(result);
-            if(-1 == truth) {
-                PyErr_Print();
-            } else {
-                keep = truth != 0;
-            }
+    PyObject *result = converted ? PyObject_CallFunctionObjArgs(callable, converted, NULL) : NULL;
+    Py_XDECREF(converted);
+    Py_DECREF(callable);
+    if(NULL != result) {
+        int truth = PyObject_IsTrue(result);
+        Py_DECREF(result);
+        if(-1 != truth) {
+            keep = truth != 0;
         }
     }
-
-    PySDL_ThreadLeave(gil);
+    if(PyErr_Occurred()) {
+        PyErr_Print();
+    }
     return keep;
 }
 
-static bool SDLCALL _c_event_filter(void *userdata, SDL_Event *event) {
-    (void)userdata;
-    return NULL == _py_event_filter ? true : _run_filter(_py_event_filter, event);
+// Trampoline entry / exit. SDL can run the filter and watchers from inside
+// another SDL call - even one a dealloc makes while an exception unwinds (a
+// destroyed window pushes an event) - so a pending exception is set aside.
+typedef struct {
+    PyGILState_STATE gil;
+    PyObject *etype, *evalue, *etb;
+} _entered;
+
+static int _enter(_entered *state) {
+    if(!PySDL_ThreadEnter(&state->gil)) {
+        return 0;  // interpreter gone: touch nothing
+    }
+    PyErr_Fetch(&state->etype, &state->evalue, &state->etb);
+    return 1;
 }
 
+static void _leave(_entered *state) {
+    PyErr_Restore(state->etype, state->evalue, state->etb);
+    PySDL_ThreadLeave(state->gil);
+}
+
+// The filter is never handed to SDL: SDL's userdata is NULL and the
+// trampoline reads _py_event_filter under the GIL, so replacing the filter
+// can't free one a call on another thread is about to use. (It used to be
+// read before the GIL was taken, while SetEventFilter released the old filter
+// before telling SDL.)
+static PyObject *_py_event_filter = NULL;
+
+static bool SDLCALL _c_event_filter(void *userdata, SDL_Event *event) {
+    (void)userdata;
+    _entered state;
+    if(!_enter(&state)) {
+        return true;  // keep the event
+    }
+    bool keep = (NULL == _py_event_filter) ? true : _call_filter(_py_event_filter, event);
+    _leave(&state);
+    return keep;
+}
+
+// FilterEvents: synchronous, so the callable (the caller's argument) outlives it.
 static bool SDLCALL _c_filter_once(void *userdata, SDL_Event *event) {
-    return _run_filter((PyObject *)userdata, event);
+    _entered state;
+    if(!_enter(&state)) {
+        return true;
+    }
+    bool keep = _call_filter((PyObject *)userdata, event);
+    _leave(&state);
+    return keep;
 }
 
 static PyObject * PySDL_SetEventFilter(PyObject *self, PyObject *arg) {
-    if(arg == Py_None) {
-        SDL_SetEventFilter(NULL, NULL);
-        Py_CLEAR(_py_event_filter);
-        Py_RETURN_NONE;
-    }
-    if(!PyCallable_Check(arg)) {
+    if(arg != Py_None && !PyCallable_Check(arg)) {
         PyErr_SetString(PyExc_TypeError, "expected a callable or None");
         return NULL;
     }
-    Py_INCREF(arg);
-    Py_XSETREF(_py_event_filter, arg);
-    SDL_SetEventFilter(_c_event_filter, NULL);
+    PyObject *old = _py_event_filter;
+    _py_event_filter = (arg == Py_None) ? NULL : Py_NewRef(arg);
+    bool set = NULL != _py_event_filter;
+    // A new filter also runs over the events already queued, right here.
+    Py_BEGIN_ALLOW_THREADS
+        SDL_SetEventFilter(set ? _c_event_filter : NULL, NULL);
+    Py_END_ALLOW_THREADS
+    Py_XDECREF(old);
     Py_RETURN_NONE;
 }
 
@@ -422,8 +489,110 @@ static PyObject * PySDL_FilterEvents(PyObject *self, PyObject *arg) {
         PyErr_SetString(PyExc_TypeError, "expected a callable");
         return NULL;
     }
-    SDL_FilterEvents(_c_filter_once, arg);  // synchronous; arg stays alive
+    Py_BEGIN_ALLOW_THREADS
+        SDL_FilterEvents(_c_filter_once, arg);
+    Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
+}
+
+// Event watchers use the Timer's token design (pysdl_Timer.c): SDL's userdata
+// is an integer token and the trampoline looks the callable up - under the
+// GIL - in _py_event_watches (token -> callable, in registration order).
+// RemoveEventWatch deletes the entry first, so a call SDL already has under
+// way finds nothing, and SDL never holds a pointer to a Python object.
+static PyObject *_py_event_watches = NULL;
+static unsigned long long _watch_next_token;
+
+// Watchers see each event as it is pushed, after the filter (so not the ones
+// it drops), before it is queued; their return value is ignored.
+static bool SDLCALL _c_event_watch(void *token, SDL_Event *event) {
+    _entered state;
+    if(!_enter(&state)) {
+        return true;
+    }
+    PyObject *key = PyLong_FromUnsignedLongLong((unsigned long long)(uintptr_t)token);
+    PyObject *callable = (key && _py_event_watches) ? PyDict_GetItemWithError(_py_event_watches, key) : NULL;
+    Py_XDECREF(key);
+    if(NULL != callable) {
+        _call_filter(callable, event);  // takes its own reference first
+    } else if(PyErr_Occurred()) {
+        PyErr_Print();
+    }
+    _leave(&state);
+    return true;
+}
+
+// AddEventWatch(callback): callback(event) runs for every pushed event the
+// filter keeps, on whichever thread pushed it. Adding a callback twice
+// registers it twice.
+static PyObject * PySDL_AddEventWatch(PyObject *self, PyObject *arg) {
+    if(!PyCallable_Check(arg)) {
+        PyErr_SetString(PyExc_TypeError, "expected a callable");
+        return NULL;
+    }
+    if(NULL == _py_event_watches && NULL == (_py_event_watches = PyDict_New())) {
+        return NULL;
+    }
+    unsigned long long token = ++_watch_next_token;
+    PyObject *key = PyLong_FromUnsignedLongLong(token);
+    if(NULL == key || 0 > PyDict_SetItem(_py_event_watches, key, arg)) {
+        Py_XDECREF(key);
+        return NULL;
+    }
+    bool ok;
+    Py_BEGIN_ALLOW_THREADS
+        ok = SDL_AddEventWatch(_c_event_watch, (void *)(uintptr_t)token);
+    Py_END_ALLOW_THREADS
+    if(!ok) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+        PyObject *etype, *evalue, *etb;
+        PyErr_Fetch(&etype, &evalue, &etb);
+        if(0 > PyDict_DelItem(_py_event_watches, key)) {
+            PyErr_Clear();
+        }
+        PyErr_Restore(etype, evalue, etb);
+        Py_DECREF(key);
+        return NULL;
+    }
+    Py_DECREF(key);
+    Py_RETURN_NONE;
+}
+
+// RemoveEventWatch(callback) / DelEventWatch: drop the latest registration of
+// callback (matched by identity); ValueError if there is none.
+static PyObject * PySDL_RemoveEventWatch(PyObject *self, PyObject *arg) {
+    PyObject *key = NULL;
+    PyObject *k, *v;
+    Py_ssize_t pos = 0;
+    while(_py_event_watches && PyDict_Next(_py_event_watches, &pos, &k, &v)) {
+        if(v == arg) {
+            key = k;  // keep going: the last match is the latest registration
+        }
+    }
+    if(NULL == key) {
+        PyErr_SetString(PyExc_ValueError, "callback is not a registered event watch");
+        return NULL;
+    }
+    unsigned long long token = PyLong_AsUnsignedLongLong(key);
+    Py_INCREF(key);
+    int rc = PyDict_DelItem(_py_event_watches, key);
+    Py_DECREF(key);
+    if(0 > rc) {
+        return NULL;
+    }
+    Py_BEGIN_ALLOW_THREADS
+        SDL_RemoveEventWatch(_c_event_watch, (void *)(uintptr_t)token);
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
+}
+
+// The event subsystem stopped (SDL_QuitEvents): SDL dropped the filter and
+// every watcher, so drop ours too (pysdl.c, after Quit / QuitSubSystem).
+void PySDL_EventWatchesGone(void) {
+    Py_CLEAR(_py_event_filter);
+    if(NULL != _py_event_watches) {
+        PyDict_Clear(_py_event_watches);
+    }
 }
 
 PyMethodDef pysdl_events_methods[] = {
@@ -446,5 +615,8 @@ PyMethodDef pysdl_events_methods[] = {
     { "SetEventFilter",    PySDL_SetEventFilter,    METH_O       },
     { "GetEventFilter",    PySDL_GetEventFilter,    METH_NOARGS  },
     { "FilterEvents",      PySDL_FilterEvents,      METH_O       },
+    { "AddEventWatch",     PySDL_AddEventWatch,     METH_O       },
+    { "RemoveEventWatch",  PySDL_RemoveEventWatch,  METH_O       },
+    { "DelEventWatch",     PySDL_RemoveEventWatch,  METH_O       },
     { NULL }
 };

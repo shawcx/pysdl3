@@ -378,6 +378,29 @@ static PyObject * PySDL_HapticName(PyObject *self, PyObject *arg) {
     return PyUnicode_FromString(name ? name : "");
 }
 
+// HapticOpened(id) -> whether that haptic device is open.
+static PyObject * PySDL_HapticOpened(PyObject *self, PyObject *arg) {
+    unsigned long id = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == id && PyErr_Occurred()) {
+        return NULL;
+    }
+    return PyBool_FromLong(NULL != SDL_GetHapticFromID((SDL_HapticID)id));
+}
+
+// GetHapticFromID(id) -> a new, owned Haptic for an already-open device
+// (re-opening by ID bumps SDL's refcount), or None. A haptic opened from a
+// joystick may not be re-openable by ID; that raises SDL's error.
+static PyObject * PySDL_GetHapticFromID(PyObject *self, PyObject *arg) {
+    unsigned long id = PyLong_AsUnsignedLong(arg);
+    if((unsigned long)-1 == id && PyErr_Occurred()) {
+        return NULL;
+    }
+    if(NULL == SDL_GetHapticFromID((SDL_HapticID)id)) {
+        Py_RETURN_NONE;
+    }
+    return PyObject_CallFunction((PyObject *)&PySDL_Haptic_Type, "k", id);
+}
+
 static PyObject * PySDL_MouseIsHaptic(PyObject *self, PyObject *ign) {
     return PyBool_FromLong(SDL_IsMouseHaptic());
 }
@@ -393,12 +416,16 @@ static PyObject * PySDL_HapticOpenFromMouse(PyObject *self, PyObject *ign) {
     return (PyObject *)wrapper;
 }
 
+// The two joystick-based calls take SDL's joystick lock: see PySDL_JoystickLock.
 static PyObject * PySDL_JoystickIsHaptic(PyObject *self, PyObject *arg) {
     if(!PyObject_TypeCheck(arg, &PySDL_Joystick_Type)) {
         PyErr_SetString(PyExc_TypeError, "expected an SDL3.Joystick");
         return NULL;
     }
-    return PyBool_FromLong(SDL_IsJoystickHaptic(((PySDL_Joystick *)arg)->joystick));
+    int locked = PySDL_JoystickLock();
+    bool haptic = SDL_IsJoystickHaptic(((PySDL_Joystick *)arg)->joystick);
+    PySDL_JoystickUnlock(locked);
+    return PyBool_FromLong(haptic);
 }
 
 static PyObject * PySDL_HapticOpenFromJoystick(PyObject *self, PyObject *arg) {
@@ -408,7 +435,9 @@ static PyObject * PySDL_HapticOpenFromJoystick(PyObject *self, PyObject *arg) {
     }
     PySDL_Haptic *wrapper = (PySDL_Haptic *)PySDL_New(&PySDL_Haptic_Type);
     if(NULL == wrapper) return NULL;
+    int locked = PySDL_JoystickLock();
     wrapper->haptic = SDL_OpenHapticFromJoystick(((PySDL_Joystick *)arg)->joystick);
+    PySDL_JoystickUnlock(locked);
     if(NULL == wrapper->haptic) {
         Py_DECREF(wrapper);
         return _raise();
@@ -421,6 +450,8 @@ PyMethodDef pysdl_haptic_methods[] = {
     { "GetHaptics",              PySDL_GetHaptics,              METH_NOARGS },
     { "HapticName",              PySDL_HapticName,              METH_O      },
     { "GetHapticNameForID",      PySDL_HapticName,              METH_O      },
+    { "HapticOpened",            PySDL_HapticOpened,            METH_O      },
+    { "GetHapticFromID",         PySDL_GetHapticFromID,         METH_O      },
     { "MouseIsHaptic",           PySDL_MouseIsHaptic,           METH_NOARGS },
     { "HapticOpenFromMouse",     PySDL_HapticOpenFromMouse,     METH_NOARGS },
     { "JoystickIsHaptic",        PySDL_JoystickIsHaptic,        METH_O      },

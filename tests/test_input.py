@@ -87,3 +87,23 @@ def test_mouse_focus_is_borrowed(sdl, window):
         assert type(focus).__name__ == 'Window'
         del focus  # dealloc of a borrowed window: no crash, window still usable
     assert window.GetWindowSize() == (64, 48)
+
+
+# --- phase 13: IME composition / keyboard reset ------------------------------
+
+def test_clear_composition(sdl, window):
+    sdl.StartTextInput(window)
+    try:
+        sdl.ClearComposition(window)
+        assert sdl.TextInputActive(window) is True  # SDL3 name of IsTextInputActive
+    finally:
+        sdl.StopTextInput(window)
+    with pytest.raises(TypeError):
+        sdl.ClearComposition(None)
+    assert sdl.ScreenKeyboardShown(window) in (True, False)
+
+
+def test_reset_keyboard(sdl):
+    sdl.ResetKeyboard()
+    assert not any(sdl.GetKeyState())
+    assert sdl.GetModState() == sdl.KMOD_NONE

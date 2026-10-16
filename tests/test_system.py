@@ -82,3 +82,50 @@ def test_uninitialised_sensor_is_guarded(sdl):
 def test_sensor_open_bad_index_raises(sdl):
     with pytest.raises(sdl.error):
         sdl.Sensor(99)
+
+
+# --- phase 13: primary selection, sensor / haptic lookups, misc --------------
+
+def test_primary_selection(sdl):
+    # Where the video driver has no primary selection (dummy, Cocoa) SDL keeps
+    # the text itself, so it still round-trips.
+    try:
+        sdl.SetPrimarySelectionText('pysdl3 primary')
+    except sdl.error:
+        pytest.skip('no primary selection under this video driver')
+    assert sdl.HasPrimarySelectionText() is True
+    assert sdl.GetPrimarySelectionText() == 'pysdl3 primary'
+    sdl.SetPrimarySelectionText('')
+    assert sdl.HasPrimarySelectionText() is False
+
+
+def test_sensor_lookups_without_devices(sdl):
+    sdl.InitSubSystem(sdl.INIT_SENSOR)
+    try:
+        assert sdl.SensorFromInstanceID(12345) is None
+        assert sdl.GetSensorFromID(12345) is None
+        assert sdl.SensorGetDeviceNonPortableType(12345) == -1
+        assert sdl.GetSensorNonPortableTypeForID(12345) == -1
+        assert sdl.GetSensorTypeForID(12345) == sdl.SENSOR_INVALID
+        for sensor_id in sdl.GetSensors():
+            assert isinstance(sdl.GetSensorNonPortableTypeForID(sensor_id), int)
+    finally:
+        sdl.QuitSubSystem(sdl.INIT_SENSOR)
+
+
+def test_haptic_lookups(sdl):
+    sdl.InitSubSystem(sdl.INIT_HAPTIC)
+    try:
+        for haptic_id in sdl.GetHaptics():
+            assert isinstance(sdl.HapticOpened(haptic_id), bool)
+        assert sdl.HapticOpened(999999) is False
+        assert sdl.GetHapticFromID(999999) is None
+    finally:
+        sdl.QuitSubSystem(sdl.INIT_HAPTIC)
+
+
+def test_error_msg_alias(sdl):
+    sdl.SetError('pysdl3 test error')
+    assert sdl.GetErrorMsg() == sdl.GetError() == 'pysdl3 test error'
+    sdl.ClearError()
+    assert not hasattr(sdl, 'HasRDTSC')  # SDL3 dropped SDL_HasRDTSC

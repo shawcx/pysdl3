@@ -76,7 +76,9 @@ a display:
 - `python3 example/gamepad.py [--virtual | --demo]` — gamepad / joystick monitor:
   device info, bindings, touchpad / gyro / battery; `--virtual` adds a virtual
   pad, `--demo` drives it unattended (runs headless)
-- `python3 example/events.py` — dump every event, custom + cross-thread events, filter
+- `python3 example/events.py [--seconds N]` — dump every event, custom + cross-thread
+  events, filter, event watcher, hint callback; `--seconds N` quits by itself (runs
+  headless)
 - `python3 example/timer.py` — fixed-rate animation driven by SDL3.Timer + power state
 - `python3 example/window.py` — window-state playground: border/grab/opacity/flash, message box, display + Vulkan info
 - `python3 example/wav.py [file.wav]` — LoadWAV + AudioStream resample + queue playback
@@ -105,7 +107,8 @@ a display:
 - `src/pysdl_Events.c` — the event queue: `_event()` (an `SDL_Event` ->
   `(type, data)` converter; `data` is a tuple for structured events, a bare
   `str` for `EVENT_TEXT_INPUT`, `None` for `EVENT_QUIT` and unknown types), plus
-  `PollEvent` / `WaitEvent` / `PushEvent` / `PeepEvents` / filters etc.
+  `PollEvent` / `WaitEvent` / `PushEvent` / `PeepEvents` / the filter /
+  event watchers etc.
   `EVENT_WINDOW_*` / `EVENT_DISPLAY_*` are handled as per-type ranges
   (`(type, data1, data2, id)`); SDL3 owns `drop.data` so there is no `consume`
   flag any more. Device events lead with `which` (the instance id): gamepad
@@ -121,7 +124,8 @@ a display:
 - `src/pysdl_Input.c` — module-level keyboard / mouse / touch / text-input
   functions. Its own `PyMethodDef` array (`pysdl_input_methods`) is merged into
   the module in `PyInit_SDL3` with `PyModule_AddFunctions`; `pysdl_Events.c`,
-  `pysdl_Video.c` (extra display queries, message boxes, hints, `OpenURL` /
+  `pysdl_Video.c` (extra display queries, message boxes, hints and hint
+  callbacks, `OpenURL` /
   locales, GL / Vulkan loaders, `GetWindowFromID` / `GetGrabbedWindow`,
   `CreateWindowAndRenderer`),
   `pysdl_Audio.c` (drivers, `LoadWAV`, `MixAudioFormat`, device-format queries),
@@ -162,8 +166,9 @@ filled in either by `tp_init` (public construction) or afterwards by the C code
 that allocated the wrapper with `PySDL_New(&PySDL_X_Type)`; it is released in
 `tp_dealloc` unless `shouldFree` is 0 (a *borrowed* pointer SDL still owns —
 `Window.GetWindowSurface()`, `GetKeyboardFocus()`/`GetMouseFocus()` via
-`PySDL_WrapWindow()`, `GetCursor()`/`GetDefaultCursor()`,
-`Texture.LockToSurface()`). Joysticks and
+`PySDL_WrapWindow()`, `GetDefaultCursor()`, `Texture.LockToSurface()`).
+`GetCursor()` returns the owning `Cursor` object when the current cursor is one
+of ours, so only SDL's default cursor is ever borrowed. Joysticks and
 gamepads are never borrowed: SDL refcounts opens of the same id, so
 `Gamepad.GetJoystick()` and the `*FromID` / `*FromPlayerIndex` lookups re-open
 the device and return a new owned wrapper (`None` if nothing is open). Nor are
@@ -249,6 +254,15 @@ its Surface alive in `Renderer.surface` (SDL holds the pointer) and refuses
 SDL-owned ones; destroying a software renderer on a window frees the window
 surface, so `_destroy()` detaches that first.
 
+Cursors too (`pysdl_Cursor.c`): every `Cursor` wrapper registers in `tp_init`.
+An owning Cursor's dealloc nulls other wrappers of the same cursor before
+`SDL_DestroyCursor`, and `PySDL_InvalidateWindows()` calls
+`PySDL_InvalidateCursors()`, because video shutdown frees every cursor - ours
+included, which must then not be freed again. A NULL cursor raises in
+`Cursor.Set` / `SetCursor` (`SDL_SetCursor(NULL)` means "redraw"), and cursors
+can't be created while video is down. SDL only compares stale cursor pointers
+against its list, so the hazard is acting on a cursor that reused the address.
+
 ### Threading
 
 Blocking SDL calls (`SDL_LoadBMP_IO`, the `IMG_Load*` / `IMG_is*` loaders and
@@ -271,18 +285,68 @@ with `SDL_PutAudioStreamData` (non-`bytes` / short → silence, not a crash);
 recording drains the stream and hands the callback the `bytes`. Without a
 callback, feed the stream with `Audio.Queue()` / drain it with `Audio.Dequeue()`.
 
+The GIL rule also covers SDL's **event-watcher lock**: the event filter and the
+watchers run under it, on whichever thread pushed the event (`SDL_SetEventFilter`
+/ `SDL_FilterEvents` also hold the queue lock), and then take the GIL - which
+the Python callback may hand to another thread mid-call. So every call that
+pushes, pumps, polls, peeks or flushes events, or (un)registers a filter /
+watch (`PollEvent`, `PumpEvents`, `PushEvent`, `FlushEvent(s)`, `HasEvent(s)`,
+`EventState`, `QuitRequested`, `SetEventFilter`, `FilterEvents`,
+`Add/RemoveEventWatch`, `ResetKeyboard`, the clipboard setters) drops the GIL
+around the SDL call; holding it there deadlocks against a callback on another
+thread. SDL functions that push events only as a side effect (most window
+calls) still hold the GIL; that residual risk needs a filter / watcher and a
+concurrent push from another thread. Hint callbacks run under SDL's hint lock,
+so the hint calls (`Set/GetHint`, `ResetHint(s)`, `AddHintCallback`, ...) drop
+the GIL as well; since nearly every SDL call reads hints, keep hint callbacks
+short.
+
+**SDL's joystick lock** works the same way: SDL runs the virtual-joystick
+callbacks holding it. Every Python entry point of `pysdl_Joystick.c` /
+`pysdl_Gamepad.c` takes it first with the GIL released
+(`PySDL_JoystickLock()`, a no-op while the joystick subsystem is down) and runs
+holding both, so no thread waits for that lock while holding the GIL. New
+functions there are declared with `PYSDL_JOYSTICK_LOCKED(name, selftype)` /
+`PYSDL_JOYSTICK_LOCKED_KW` (pysdl.h) in place of a prototype, and defined as
+`name##_impl`; `tp_init` / `tp_dealloc` (open / close) and any other file's
+joystick call (`pysdl_Haptic.c`) use `PySDL_JoystickLock()` /
+`PySDL_JoystickUnlock()` directly.
+
+`Init` / `InitSubSystem` / `QuitSubSystem` / `Quit` drop the GIL around SDL
+too: shutting a subsystem down joins or waits for SDL threads that may be
+inside a Python callback waiting for the GIL (`SDL_QuitTimers` joins the timer
+thread, `SDL_QuitAudio` closes devices under their callbacks, joystick init /
+quit take the joystick lock). Their bookkeeping (`PySDL_CheckVideoGone`,
+`PySDL_InvalidateWindows`, the `...Gone()` hooks) runs with the GIL held,
+before and after.
+
 New off-main-thread callbacks (timers, event filters) must follow the same
-`PySDL_ThreadEnter` / `PySDL_ThreadLeave` pattern.
+`PySDL_ThreadEnter` / `PySDL_ThreadLeave` pattern, take their own reference to
+the callable for the call (a callback may unregister itself), and never hand
+SDL a pointer to a Python object it may outlive:
+- event filter: SDL's userdata is `NULL`; the trampoline reads
+  `_py_event_filter` under the GIL (`pysdl_Events.c`);
+- event watchers: integer tokens -> callables in `_py_event_watches`;
+- hint callbacks: one SDL callback per hint name (userdata `NULL`, never
+  removed - SDL's list walk only survives a callback removing itself), the
+  callables in `_hint_callbacks` (name -> list, `pysdl_Video.c`);
+- timers and virtual joysticks: integer tokens (`SDL3.Timer` above, virtual
+  joysticks below).
+SDL forgets some of these behind our back: stopping the event subsystem drops
+the filter and watchers, `SDL_Quit` drops every hint callback, so `Quit` /
+`QuitSubSystem` (`pysdl.c`) call `PySDL_EventWatchesGone()` /
+`PySDL_HintCallbacksGone()`.
 
 Virtual-joystick callbacks (`JoystickAttachVirtualEx(..., rumble=fn, ...)`,
 `pysdl_Joystick.c`) use the Timer's token design: SDL's userdata is an integer
 token, the callables live in a token-keyed dict entry made *before* the attach
 (SDL calls `set_player_index` from inside it), and SDL's `Cleanup` callback
 drops the entry when the device goes (detach, subsystem quit, failed attach).
-SDL runs them with its joystick lock held, sometimes from a dealloc
-(`SDL_CloseJoystick` stops a rumble), so the trampoline sets any pending
-exception aside (`PyErr_Fetch` / `PyErr_Restore`) around the call — do the same
-in any callback SDL can fire from inside another SDL call.
+SDL runs them with its joystick lock held (hence the lock rule above),
+sometimes from a dealloc (`SDL_CloseJoystick` stops a rumble), so the trampoline
+sets any pending exception aside (`PyErr_Fetch` / `PyErr_Restore`) around the
+call — do the same in any callback SDL can fire from inside another SDL call
+(the event filter / watcher and hint trampolines do).
 
 ### Conventions
 

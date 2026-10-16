@@ -232,11 +232,12 @@ void PySDL_WindowSurfaceDrop(SDL_Window *window) {
 }
 
 // Video shut down (SDL_Quit, QuitSubSystem(INIT_VIDEO)): SDL destroyed every
-// window, window surface, renderer and texture. Null the Windows (their
-// methods then raise "Invalid window" and dealloc does nothing), the Renderers
-// and Textures, and empty the Surfaces.
+// window, window surface, renderer, texture and cursor. Null the Windows
+// (their methods then raise "Invalid window" and dealloc does nothing), the
+// Renderers, Textures and Cursors, and empty the Surfaces.
 void PySDL_InvalidateWindows(void) {
     PySDL_InvalidateRenderers();
+    PySDL_InvalidateCursors();
     for(Py_ssize_t idx = 0; idx < _windows.len; ++idx) {
         PySDL_Window *window = (PySDL_Window *)_windows.items[idx];
         window->window = NULL;

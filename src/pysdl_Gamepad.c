@@ -3,54 +3,56 @@
 // SDL3 renamed SDL_GameController -> SDL_Gamepad throughout. The Python type is
 // SDL3.Gamepad (with a GameController alias); opened by SDL_JoystickID. SDL
 // refcounts opens of the same ID, so lookups return new owned wrappers.
+// Every Python entry point runs holding SDL's joystick lock, taken without the
+// GIL (PYSDL_JOYSTICK_LOCKED; see pysdl_Joystick.c).
 
 static int        PySDL_Gamepad_Type_init    (PySDL_Gamepad*, PyObject*, PyObject*);
 static void       PySDL_Gamepad_Type_dealloc (PySDL_Gamepad*);
 
-static PyObject * PySDL_Gamepad_Name              (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_InstanceID        (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_Attached          (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetAxis           (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetButton         (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_HasAxis           (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_HasButton         (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetButtonLabel    (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_Mapping           (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetBindings       (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetBindForAxis    (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetBindForButton  (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetJoystick       (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_Rumble            (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_RumbleTriggers    (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_SetLED            (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_HasLED            (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_HasRumble         (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_HasRumbleTriggers (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_SendEffect        (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetType           (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetRealType       (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetVendor         (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetProduct        (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetProductVersion (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetFirmwareVersion (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetSerial         (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_Path              (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetSteamHandle    (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetPlayerIndex    (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_SetPlayerIndex    (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetPowerInfo      (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetConnectionState (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_HasSensor         (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_SetSensorEnabled  (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_IsSensorEnabled   (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetSensorDataRate (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetSensorData     (PySDL_Gamepad*, PyObject*, PyObject*);
-static PyObject * PySDL_Gamepad_GetNumTouchpads   (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetNumTouchpadFingers (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetTouchpadFinger (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetAppleSFSymbolsNameForButton (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_GetAppleSFSymbolsNameForAxis   (PySDL_Gamepad*, PyObject*);
-static PyObject * PySDL_Gamepad_Close             (PySDL_Gamepad*, PyObject*);
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_Name,                           PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_InstanceID,                     PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_Attached,                       PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetAxis,                        PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetButton,                      PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_HasAxis,                        PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_HasButton,                      PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetButtonLabel,                 PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_Mapping,                        PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetBindings,                    PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetBindForAxis,                 PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetBindForButton,               PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetJoystick,                    PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_Rumble,                         PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_RumbleTriggers,                 PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_SetLED,                         PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_HasLED,                         PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_HasRumble,                      PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_HasRumbleTriggers,              PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_SendEffect,                     PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetType,                        PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetRealType,                    PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetVendor,                      PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetProduct,                     PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetProductVersion,              PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetFirmwareVersion,             PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetSerial,                      PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_Path,                           PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetSteamHandle,                 PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetPlayerIndex,                 PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_SetPlayerIndex,                 PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetPowerInfo,                   PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetConnectionState,             PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_HasSensor,                      PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_SetSensorEnabled,               PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_IsSensorEnabled,                PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetSensorDataRate,              PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED_KW(PySDL_Gamepad_GetSensorData,               PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetNumTouchpads,                PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetNumTouchpadFingers,          PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetTouchpadFinger,              PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetAppleSFSymbolsNameForButton, PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_GetAppleSFSymbolsNameForAxis,   PySDL_Gamepad *)
+PYSDL_JOYSTICK_LOCKED(PySDL_Gamepad_Close,                          PySDL_Gamepad *)
 
 static PyMethodDef PySDL_Gamepad_methods[] = {
     { "Name",              (PyCFunction)PySDL_Gamepad_Name,              METH_NOARGS },
@@ -121,7 +123,9 @@ static int PySDL_Gamepad_Type_init(PySDL_Gamepad *self, PyObject *args, PyObject
     self->gamepad = NULL;
 
     if(id > 0) {
+        int locked = PySDL_JoystickLock();
         self->gamepad = SDL_OpenGamepad((SDL_JoystickID)id);
+        PySDL_JoystickUnlock(locked);
         if(NULL == self->gamepad) {
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
@@ -132,7 +136,9 @@ static int PySDL_Gamepad_Type_init(PySDL_Gamepad *self, PyObject *args, PyObject
 
 static void PySDL_Gamepad_Type_dealloc(PySDL_Gamepad *self) {
     if(NULL != self->gamepad) {
+        int locked = PySDL_JoystickLock();
         SDL_CloseGamepad(self->gamepad);
+        PySDL_JoystickUnlock(locked);
         self->gamepad = NULL;
     }
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -186,54 +192,54 @@ static PyObject * _cap(SDL_Gamepad *gp, const char *name) {
     return PyBool_FromLong(SDL_GetBooleanProperty(SDL_GetGamepadProperties(gp), name, false));
 }
 
-static PyObject * PySDL_Gamepad_Name(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_Name_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp) return NULL;
     const char *name = SDL_GetGamepadName(gp);
     return PyUnicode_FromString(name ? name : "");
 }
 
-static PyObject * PySDL_Gamepad_InstanceID(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_InstanceID_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromUnsignedLong(SDL_GetGamepadID(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_Attached(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_Attached_impl(PySDL_Gamepad *self, PyObject *ign) {
     return PyBool_FromLong(self->gamepad && SDL_GamepadConnected(self->gamepad));
 }
 
-static PyObject * PySDL_Gamepad_GetAxis(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetAxis_impl(PySDL_Gamepad *self, PyObject *arg) {
     int axis;
     SDL_Gamepad *gp = _gp_int(self, arg, &axis);
     return gp ? PyLong_FromLong(SDL_GetGamepadAxis(gp, (SDL_GamepadAxis)axis)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetButton(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetButton_impl(PySDL_Gamepad *self, PyObject *arg) {
     int button;
     SDL_Gamepad *gp = _gp_int(self, arg, &button);
     return gp ? PyBool_FromLong(SDL_GetGamepadButton(gp, (SDL_GamepadButton)button)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_HasAxis(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_HasAxis_impl(PySDL_Gamepad *self, PyObject *arg) {
     int axis;
     SDL_Gamepad *gp = _gp_int(self, arg, &axis);
     return gp ? PyBool_FromLong(SDL_GamepadHasAxis(gp, (SDL_GamepadAxis)axis)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_HasButton(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_HasButton_impl(PySDL_Gamepad *self, PyObject *arg) {
     int button;
     SDL_Gamepad *gp = _gp_int(self, arg, &button);
     return gp ? PyBool_FromLong(SDL_GamepadHasButton(gp, (SDL_GamepadButton)button)) : NULL;
 }
 
 // -> GAMEPAD_BUTTON_LABEL_* (what is printed on the button: A, Cross, ...)
-static PyObject * PySDL_Gamepad_GetButtonLabel(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetButtonLabel_impl(PySDL_Gamepad *self, PyObject *arg) {
     int button;
     SDL_Gamepad *gp = _gp_int(self, arg, &button);
     return gp ? PyLong_FromLong(SDL_GetGamepadButtonLabel(gp, (SDL_GamepadButton)button)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_Mapping(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_Mapping_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? _take_mapping(SDL_GetGamepadMapping(gp)) : NULL;
 }
@@ -285,7 +291,7 @@ static SDL_GamepadBinding ** _bindings(PySDL_Gamepad *self, int *count) {
 }
 
 // GetBindings() -> [(input, output), ...] (see _bind_input / _bind_output)
-static PyObject * PySDL_Gamepad_GetBindings(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetBindings_impl(PySDL_Gamepad *self, PyObject *ign) {
     int count = 0;
     SDL_GamepadBinding **bindings = _bindings(self, &count);
     if(NULL == bindings) {
@@ -351,18 +357,18 @@ static PyObject * _bind_for(PySDL_Gamepad *self, PyObject *arg, SDL_GamepadBindi
     return result;
 }
 
-static PyObject * PySDL_Gamepad_GetBindForAxis(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetBindForAxis_impl(PySDL_Gamepad *self, PyObject *arg) {
     return _bind_for(self, arg, SDL_GAMEPAD_BINDTYPE_AXIS);
 }
 
-static PyObject * PySDL_Gamepad_GetBindForButton(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetBindForButton_impl(PySDL_Gamepad *self, PyObject *arg) {
     return _bind_for(self, arg, SDL_GAMEPAD_BINDTYPE_BUTTON);
 }
 
 // The gamepad's joystick as an owned Joystick: re-opening it by ID bumps SDL's
 // refcount, so it stays valid after the gamepad is closed (a borrowed pointer
 // would dangle). None if the device has gone.
-static PyObject * PySDL_Gamepad_GetJoystick(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetJoystick_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp) return NULL;
 
@@ -374,7 +380,7 @@ static PyObject * PySDL_Gamepad_GetJoystick(PySDL_Gamepad *self, PyObject *ign) 
     return PyObject_CallFunction((PyObject *)&PySDL_Joystick_Type, "k", (unsigned long)SDL_GetJoystickID(joystick));
 }
 
-static PyObject * PySDL_Gamepad_Rumble(PySDL_Gamepad *self, PyObject *args) {
+static PyObject * PySDL_Gamepad_Rumble_impl(PySDL_Gamepad *self, PyObject *args) {
     unsigned int low, high, ms;
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp || !PyArg_ParseTuple(args, "III", &low, &high, &ms)) {
@@ -383,7 +389,7 @@ static PyObject * PySDL_Gamepad_Rumble(PySDL_Gamepad *self, PyObject *args) {
     return PyBool_FromLong(SDL_RumbleGamepad(gp, (Uint16)low, (Uint16)high, ms));
 }
 
-static PyObject * PySDL_Gamepad_RumbleTriggers(PySDL_Gamepad *self, PyObject *args) {
+static PyObject * PySDL_Gamepad_RumbleTriggers_impl(PySDL_Gamepad *self, PyObject *args) {
     unsigned int left, right, ms;
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp || !PyArg_ParseTuple(args, "III", &left, &right, &ms)) {
@@ -392,7 +398,7 @@ static PyObject * PySDL_Gamepad_RumbleTriggers(PySDL_Gamepad *self, PyObject *ar
     return PyBool_FromLong(SDL_RumbleGamepadTriggers(gp, (Uint16)left, (Uint16)right, ms));
 }
 
-static PyObject * PySDL_Gamepad_SetLED(PySDL_Gamepad *self, PyObject *args) {
+static PyObject * PySDL_Gamepad_SetLED_impl(PySDL_Gamepad *self, PyObject *args) {
     unsigned char r, g, b;
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp || !PyArg_ParseTuple(args, "bbb", &r, &g, &b)) {
@@ -401,20 +407,20 @@ static PyObject * PySDL_Gamepad_SetLED(PySDL_Gamepad *self, PyObject *args) {
     return PyBool_FromLong(SDL_SetGamepadLED(gp, r, g, b));
 }
 
-static PyObject * PySDL_Gamepad_HasLED(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_HasLED_impl(PySDL_Gamepad *self, PyObject *ign) {
     return _cap(self->gamepad, SDL_PROP_GAMEPAD_CAP_RGB_LED_BOOLEAN);
 }
 
-static PyObject * PySDL_Gamepad_HasRumble(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_HasRumble_impl(PySDL_Gamepad *self, PyObject *ign) {
     return _cap(self->gamepad, SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN);
 }
 
-static PyObject * PySDL_Gamepad_HasRumbleTriggers(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_HasRumbleTriggers_impl(PySDL_Gamepad *self, PyObject *ign) {
     return _cap(self->gamepad, SDL_PROP_GAMEPAD_CAP_TRIGGER_RUMBLE_BOOLEAN);
 }
 
 // SendEffect(data: bytes-like) -> bool
-static PyObject * PySDL_Gamepad_SendEffect(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_SendEffect_impl(PySDL_Gamepad *self, PyObject *arg) {
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp) return NULL;
     Py_buffer data;
@@ -431,60 +437,60 @@ static PyObject * PySDL_Gamepad_SendEffect(PySDL_Gamepad *self, PyObject *arg) {
     return PyBool_FromLong(ok);
 }
 
-static PyObject * PySDL_Gamepad_GetType(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetType_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetGamepadType(gp)) : NULL;
 }
 
 // The type ignoring any mapping override.
-static PyObject * PySDL_Gamepad_GetRealType(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetRealType_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetRealGamepadType(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetVendor(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetVendor_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetGamepadVendor(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetProduct(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetProduct_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetGamepadProduct(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetProductVersion(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetProductVersion_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetGamepadProductVersion(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetFirmwareVersion(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetFirmwareVersion_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetGamepadFirmwareVersion(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetSerial(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetSerial_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? _str_or_none(SDL_GetGamepadSerial(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_Path(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_Path_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? _str_or_none(SDL_GetGamepadPath(gp)) : NULL;
 }
 
 // The Steam Input handle (an InputHandle_t), or 0 when not driven by Steam.
-static PyObject * PySDL_Gamepad_GetSteamHandle(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetSteamHandle_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromUnsignedLongLong(SDL_GetGamepadSteamHandle(gp)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetPlayerIndex(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetPlayerIndex_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetGamepadPlayerIndex(gp)) : NULL;
 }
 
 // SetPlayerIndex(index) - -1 clears it.
-static PyObject * PySDL_Gamepad_SetPlayerIndex(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_SetPlayerIndex_impl(PySDL_Gamepad *self, PyObject *arg) {
     int player;
     SDL_Gamepad *gp = _gp_int(self, arg, &player);
     if(NULL == gp) return NULL;
@@ -496,7 +502,7 @@ static PyObject * PySDL_Gamepad_SetPlayerIndex(PySDL_Gamepad *self, PyObject *ar
 }
 
 // -> (POWERSTATE_*, percent or -1)
-static PyObject * PySDL_Gamepad_GetPowerInfo(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetPowerInfo_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp) return NULL;
     int percent = -1;
@@ -505,7 +511,7 @@ static PyObject * PySDL_Gamepad_GetPowerInfo(PySDL_Gamepad *self, PyObject *ign)
 }
 
 // -> JOYSTICK_CONNECTION_*
-static PyObject * PySDL_Gamepad_GetConnectionState(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetConnectionState_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetGamepadConnectionState(gp)) : NULL;
 }
@@ -514,14 +520,14 @@ static PyObject * PySDL_Gamepad_GetConnectionState(PySDL_Gamepad *self, PyObject
 // sensors / touchpads
 //---------------------------------------------------------
 
-static PyObject * PySDL_Gamepad_HasSensor(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_HasSensor_impl(PySDL_Gamepad *self, PyObject *arg) {
     int type;
     SDL_Gamepad *gp = _gp_int(self, arg, &type);
     return gp ? PyBool_FromLong(SDL_GamepadHasSensor(gp, (SDL_SensorType)type)) : NULL;
 }
 
 // SetSensorEnabled(type, enabled) - raises if the gamepad has no such sensor.
-static PyObject * PySDL_Gamepad_SetSensorEnabled(PySDL_Gamepad *self, PyObject *args) {
+static PyObject * PySDL_Gamepad_SetSensorEnabled_impl(PySDL_Gamepad *self, PyObject *args) {
     int type, enabled;
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp || !PyArg_ParseTuple(args, "ip", &type, &enabled)) {
@@ -534,14 +540,14 @@ static PyObject * PySDL_Gamepad_SetSensorEnabled(PySDL_Gamepad *self, PyObject *
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_Gamepad_IsSensorEnabled(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_IsSensorEnabled_impl(PySDL_Gamepad *self, PyObject *arg) {
     int type;
     SDL_Gamepad *gp = _gp_int(self, arg, &type);
     return gp ? PyBool_FromLong(SDL_GamepadSensorEnabled(gp, (SDL_SensorType)type)) : NULL;
 }
 
 // -> Hz, or 0.0 when unknown / no such sensor.
-static PyObject * PySDL_Gamepad_GetSensorDataRate(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetSensorDataRate_impl(PySDL_Gamepad *self, PyObject *arg) {
     int type;
     SDL_Gamepad *gp = _gp_int(self, arg, &type);
     return gp ? PyFloat_FromDouble(SDL_GetGamepadSensorDataRate(gp, (SDL_SensorType)type)) : NULL;
@@ -549,7 +555,7 @@ static PyObject * PySDL_Gamepad_GetSensorDataRate(PySDL_Gamepad *self, PyObject 
 
 // GetSensorData(type, count=3) -> tuple of `count` floats (SDL keeps 3 per
 // gamepad sensor; any beyond are 0.0).
-static PyObject * PySDL_Gamepad_GetSensorData(PySDL_Gamepad *self, PyObject *args, PyObject *kwds) {
+static PyObject * PySDL_Gamepad_GetSensorData_impl(PySDL_Gamepad *self, PyObject *args, PyObject *kwds) {
     int type, count = 3;
     SDL_Gamepad *gp = _gp(self);
     static char *kwlist[] = {"type", "count", NULL};
@@ -582,20 +588,20 @@ static PyObject * PySDL_Gamepad_GetSensorData(PySDL_Gamepad *self, PyObject *arg
     return tuple;
 }
 
-static PyObject * PySDL_Gamepad_GetNumTouchpads(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_GetNumTouchpads_impl(PySDL_Gamepad *self, PyObject *ign) {
     SDL_Gamepad *gp = _gp(self);
     return gp ? PyLong_FromLong(SDL_GetNumGamepadTouchpads(gp)) : NULL;
 }
 
 // -> simultaneous fingers on that touchpad (0 for a touchpad that isn't there)
-static PyObject * PySDL_Gamepad_GetNumTouchpadFingers(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetNumTouchpadFingers_impl(PySDL_Gamepad *self, PyObject *arg) {
     int touchpad;
     SDL_Gamepad *gp = _gp_int(self, arg, &touchpad);
     return gp ? PyLong_FromLong(SDL_GetNumGamepadTouchpadFingers(gp, touchpad)) : NULL;
 }
 
 // GetTouchpadFinger(touchpad, finger) -> (down, x, y, pressure)
-static PyObject * PySDL_Gamepad_GetTouchpadFinger(PySDL_Gamepad *self, PyObject *args) {
+static PyObject * PySDL_Gamepad_GetTouchpadFinger_impl(PySDL_Gamepad *self, PyObject *args) {
     int touchpad, finger;
     SDL_Gamepad *gp = _gp(self);
     if(NULL == gp || !PyArg_ParseTuple(args, "ii", &touchpad, &finger)) {
@@ -611,19 +617,19 @@ static PyObject * PySDL_Gamepad_GetTouchpadFinger(PySDL_Gamepad *self, PyObject 
 }
 
 // Apple platforms only; None elsewhere.
-static PyObject * PySDL_Gamepad_GetAppleSFSymbolsNameForButton(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetAppleSFSymbolsNameForButton_impl(PySDL_Gamepad *self, PyObject *arg) {
     int button;
     SDL_Gamepad *gp = _gp_int(self, arg, &button);
     return gp ? _str_or_none(SDL_GetGamepadAppleSFSymbolsNameForButton(gp, (SDL_GamepadButton)button)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_GetAppleSFSymbolsNameForAxis(PySDL_Gamepad *self, PyObject *arg) {
+static PyObject * PySDL_Gamepad_GetAppleSFSymbolsNameForAxis_impl(PySDL_Gamepad *self, PyObject *arg) {
     int axis;
     SDL_Gamepad *gp = _gp_int(self, arg, &axis);
     return gp ? _str_or_none(SDL_GetGamepadAppleSFSymbolsNameForAxis(gp, (SDL_GamepadAxis)axis)) : NULL;
 }
 
-static PyObject * PySDL_Gamepad_Close(PySDL_Gamepad *self, PyObject *ign) {
+static PyObject * PySDL_Gamepad_Close_impl(PySDL_Gamepad *self, PyObject *ign) {
     if(NULL != self->gamepad) {
         SDL_CloseGamepad(self->gamepad);
         self->gamepad = NULL;
@@ -663,7 +669,7 @@ static PyObject * _wrap_open_gamepad(SDL_Gamepad *gp) {
     return PyObject_CallFunction((PyObject *)&PySDL_Gamepad_Type, "k", (unsigned long)SDL_GetGamepadID(gp));
 }
 
-static PyObject * PySDL_GetGamepads(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_GetGamepads_impl(PyObject *self, PyObject *ign) {
     int count = 0;
     SDL_JoystickID *ids = SDL_GetGamepads(&count);
     PyObject *list = PyList_New(count);
@@ -679,12 +685,12 @@ static PyObject * PySDL_GetGamepads(PyObject *self, PyObject *ign) {
     return list;
 }
 
-static PyObject * PySDL_IsGameController(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_IsGameController_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyBool_FromLong(SDL_IsGamepad(id)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerNameForIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerNameForIndex_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     if(!_id_arg(arg, &id)) {
         return NULL;
@@ -693,32 +699,32 @@ static PyObject * PySDL_GameControllerNameForIndex(PyObject *self, PyObject *arg
     return PyUnicode_FromString(name ? name : "");
 }
 
-static PyObject * PySDL_GameControllerPathForIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerPathForIndex_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? _str_or_none(SDL_GetGamepadPathForID(id)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerTypeForIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerTypeForIndex_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? PyLong_FromLong(SDL_GetGamepadTypeForID(id)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerMappingForDeviceIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerMappingForDeviceIndex_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? _take_mapping(SDL_GetGamepadMappingForID(id)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerFromInstanceID(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerFromInstanceID_impl(PyObject *self, PyObject *arg) {
     SDL_JoystickID id;
     return _id_arg(arg, &id) ? _wrap_open_gamepad(SDL_GetGamepadFromID(id)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerFromPlayerIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerFromPlayerIndex_impl(PyObject *self, PyObject *arg) {
     int player;
     return _int_arg(arg, &player) ? _wrap_open_gamepad(SDL_GetGamepadFromPlayerIndex(player)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerAddMapping(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerAddMapping_impl(PyObject *self, PyObject *arg) {
     const char *mapping = PyUnicode_AsUTF8(arg);
     if(NULL == mapping) {
         return NULL;
@@ -732,7 +738,7 @@ static PyObject * PySDL_GameControllerAddMapping(PyObject *self, PyObject *arg) 
 }
 
 // Takes a path (str) or the file's contents (bytes-like) -> number of mappings added.
-static PyObject * PySDL_GameControllerAddMappingsFromFile(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerAddMappingsFromFile_impl(PyObject *self, PyObject *arg) {
     int rc;
     if(PyUnicode_Check(arg)) {
         const char *path = PyUnicode_AsUTF8(arg);
@@ -758,7 +764,7 @@ static PyObject * PySDL_GameControllerAddMappingsFromFile(PyObject *self, PyObje
 }
 
 // GetGamepadMappings() -> [str] (every mapping SDL knows)
-static PyObject * PySDL_GetGamepadMappings(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_GetGamepadMappings_impl(PyObject *self, PyObject *ign) {
     int count = 0;
     char **mappings = SDL_GetGamepadMappings(&count);
     if(NULL == mappings) {
@@ -778,14 +784,14 @@ static PyObject * PySDL_GetGamepadMappings(PyObject *self, PyObject *ign) {
     return list;
 }
 
-static PyObject * PySDL_GameControllerNumMappings(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_GameControllerNumMappings_impl(PyObject *self, PyObject *ign) {
     int count = 0;
     SDL_free(SDL_GetGamepadMappings(&count));
     return PyLong_FromLong(count);
 }
 
 // SDL3 has no per-index lookup: index into SDL_GetGamepadMappings. None if out of range.
-static PyObject * PySDL_GameControllerMappingForIndex(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerMappingForIndex_impl(PyObject *self, PyObject *arg) {
     int index;
     if(!_int_arg(arg, &index)) {
         return NULL;
@@ -798,47 +804,47 @@ static PyObject * PySDL_GameControllerMappingForIndex(PyObject *self, PyObject *
     return result;
 }
 
-static PyObject * PySDL_GameControllerMappingForGUID(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerMappingForGUID_impl(PyObject *self, PyObject *arg) {
     SDL_GUID guid;
     return PyToGUID(arg, &guid) ? _take_mapping(SDL_GetGamepadMappingForGUID(guid)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerGetAxisFromString(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerGetAxisFromString_impl(PyObject *self, PyObject *arg) {
     const char *name = PyUnicode_AsUTF8(arg);
     return name ? PyLong_FromLong(SDL_GetGamepadAxisFromString(name)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerGetButtonFromString(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerGetButtonFromString_impl(PyObject *self, PyObject *arg) {
     const char *name = PyUnicode_AsUTF8(arg);
     return name ? PyLong_FromLong(SDL_GetGamepadButtonFromString(name)) : NULL;
 }
 
-static PyObject * PySDL_GetGamepadTypeFromString(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GetGamepadTypeFromString_impl(PyObject *self, PyObject *arg) {
     const char *name = PyUnicode_AsUTF8(arg);
     return name ? PyLong_FromLong(SDL_GetGamepadTypeFromString(name)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerGetStringForAxis(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerGetStringForAxis_impl(PyObject *self, PyObject *arg) {
     int axis;
     return _int_arg(arg, &axis) ? _str_or_none(SDL_GetGamepadStringForAxis((SDL_GamepadAxis)axis)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerGetStringForButton(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GameControllerGetStringForButton_impl(PyObject *self, PyObject *arg) {
     int button;
     return _int_arg(arg, &button) ? _str_or_none(SDL_GetGamepadStringForButton((SDL_GamepadButton)button)) : NULL;
 }
 
-static PyObject * PySDL_GetGamepadStringForType(PyObject *self, PyObject *arg) {
+static PyObject * PySDL_GetGamepadStringForType_impl(PyObject *self, PyObject *arg) {
     int type;
     return _int_arg(arg, &type) ? _str_or_none(SDL_GetGamepadStringForType((SDL_GamepadType)type)) : NULL;
 }
 
-static PyObject * PySDL_GameControllerUpdate(PyObject *self, PyObject *ign) {
+static PyObject * PySDL_GameControllerUpdate_impl(PyObject *self, PyObject *ign) {
     SDL_UpdateGamepads();
     Py_RETURN_NONE;
 }
 
-static PyObject * PySDL_GameControllerEventState(PyObject *self, PyObject *args) {
+static PyObject * PySDL_GameControllerEventState_impl(PyObject *self, PyObject *args) {
     PyObject *state = NULL;
     if(!PyArg_ParseTuple(args, "|O", &state)) {
         return NULL;
@@ -848,6 +854,31 @@ static PyObject * PySDL_GameControllerEventState(PyObject *self, PyObject *args)
     }
     return PyBool_FromLong(SDL_GamepadEventsEnabled());
 }
+
+// Every module function runs holding SDL's joystick lock, taken without the
+// GIL (see PySDL_JoystickLock in pysdl.h).
+PYSDL_JOYSTICK_LOCKED(PySDL_GetGamepads,                         PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_IsGameController,                    PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerNameForIndex,          PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerPathForIndex,          PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerTypeForIndex,          PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerMappingForDeviceIndex, PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerFromInstanceID,        PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerFromPlayerIndex,       PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerAddMapping,            PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerAddMappingsFromFile,   PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GetGamepadMappings,                  PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerNumMappings,           PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerMappingForIndex,       PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerMappingForGUID,        PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerGetAxisFromString,     PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerGetButtonFromString,   PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GetGamepadTypeFromString,            PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerGetStringForAxis,      PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerGetStringForButton,    PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GetGamepadStringForType,             PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerUpdate,                PyObject *)
+PYSDL_JOYSTICK_LOCKED(PySDL_GameControllerEventState,            PyObject *)
 
 PyMethodDef pysdl_gamepad_methods[] = {
     { "GetGamepads",                      PySDL_GetGamepads,                      METH_NOARGS  },
