@@ -161,8 +161,12 @@ PyObject *palette; }` where `palette` is a kept-alive `SDL3.Palette` from
 `SDL3.Timer(interval, callback)` registers `SDL_AddTimer`; the callback runs on
 SDL's timer thread through the `PySDL_ThreadEnter` trampoline and returns the
 next interval (`None` = same, `0` or falsy = stop). `Timer.Remove()` — and
-dropping the wrapper, which calls it from `tp_dealloc` — cancels the timer (GIL
-dropped around `SDL_RemoveTimer`, which joins the callback thread).
+dropping the wrapper, which calls it from `tp_dealloc` — cancels the timer.
+`SDL_RemoveTimer` does **not** wait for a callback already under way, so SDL is
+never handed a Python object: its `param` is an integer token, the trampoline
+looks the callable up in a token → callable dict under the GIL, and `Remove()`
+deletes the entry first — a late callback finds nothing and returns 0. (Passing
+the callable itself segfaulted when a timer was dropped mid-callback.)
 
 `PySDL_Surface` carries a `shouldFree` flag: surfaces it owns (loaded images,
 `CreateSurface`) are `SDL_DestroySurface`d on dealloc; a borrowed surface like

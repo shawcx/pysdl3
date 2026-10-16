@@ -34,9 +34,22 @@ PyTypeObject PySDL_Timer_Type = {
     .tp_new       = PyType_GenericNew
 };
 
+// SDL_RemoveTimer does not wait for a callback already under way: it only
+// marks the timer cancelled. So SDL is never given a pointer to a Python
+// object (it could be freed while the timer thread waits for the GIL).
+// Instead each timer gets an integer token; SDL's `param` is the token, and
+// the callback - holding the GIL - looks it up in `_timers` (token ->
+// callable). Remove() deletes the entry under the GIL, so a late callback
+// finds nothing and stops the timer.
+static PyObject *_timers;            // dict: token -> callable
+static unsigned long long _next_token;
+
+static PyObject * _token_key(void *param) {
+    return PyLong_FromUnsignedLongLong((unsigned long long)(uintptr_t)param);
+}
+
 static Uint32 SDLCALL _timer_callback(void *param, SDL_TimerID timerID, Uint32 interval) {
     (void)timerID;
-    PyObject *callable = (PyObject *)param;
     PyGILState_STATE gil;
 
     if(!PySDL_ThreadEnter(&gil)) {
@@ -44,9 +57,22 @@ static Uint32 SDLCALL _timer_callback(void *param, SDL_TimerID timerID, Uint32 i
     }
 
     Uint32 next = 0;
+    PyObject *key = _token_key(param);
+    PyObject *callable = (key && _timers) ? PyDict_GetItemWithError(_timers, key) : NULL;
+    Py_XDECREF(key);
+    if(NULL == callable) {
+        if(PyErr_Occurred()) {
+            PyErr_Print();
+        }
+        PySDL_ThreadLeave(gil);
+        return 0;  // removed while this call was pending
+    }
+
+    Py_INCREF(callable);  // Remove() may run from inside the callback
     PyObject *arg = PyLong_FromUnsignedLong(interval);
-    PyObject *result = PyObject_CallFunctionObjArgs(callable, arg, NULL);
+    PyObject *result = arg ? PyObject_CallFunctionObjArgs(callable, arg, NULL) : NULL;
     Py_XDECREF(arg);
+    Py_DECREF(callable);
 
     if(NULL == result) {
         PyErr_Print();
@@ -78,36 +104,52 @@ static int PySDL_Timer_Type_init(PySDL_Timer *self, PyObject *args, PyObject *kw
     }
 
     self->id = 0;
-    self->callback = NULL;
+    self->token = 0;
 
     if(NULL != callback) {
         if(!PyCallable_Check(callback)) {
             PyErr_SetString(PyExc_TypeError, "callback must be callable");
             return -1;
         }
-        Py_INCREF(callback);
-        self->id = SDL_AddTimer(interval, _timer_callback, callback);
+        if(NULL == _timers && NULL == (_timers = PyDict_New())) {
+            return -1;
+        }
+        unsigned long long token = ++_next_token;
+        PyObject *key = PyLong_FromUnsignedLongLong(token);
+        if(NULL == key || 0 > PyDict_SetItem(_timers, key, callback)) {
+            Py_XDECREF(key);
+            return -1;
+        }
+        self->id = SDL_AddTimer(interval, _timer_callback, (void *)(uintptr_t)token);
         if(0 == self->id) {
-            Py_DECREF(callback);
+            PyDict_DelItem(_timers, key);
+            Py_DECREF(key);
             PyErr_SetString(pysdl_Error, SDL_GetError());
             return -1;
         }
-        self->callback = callback;  // one ref, shared with SDL's param
+        Py_DECREF(key);
+        self->token = token;
     }
     return 0;
 }
 
 static void _remove(PySDL_Timer *self) {
+    if(0 != self->token && NULL != _timers) {
+        // First, under the GIL: a callback still pending now finds no entry.
+        PyObject *key = PyLong_FromUnsignedLongLong(self->token);
+        if(NULL == key || 0 > PyDict_DelItem(_timers, key)) {
+            PyErr_Clear();  // already gone (e.g. dealloc after Remove)
+        }
+        Py_XDECREF(key);
+        self->token = 0;
+    }
     if(0 != self->id) {
-        // Drop the GIL: SDL_RemoveTimer waits for the callback thread, which
-        // needs the GIL.
         SDL_TimerID id = self->id;
+        self->id = 0;
         Py_BEGIN_ALLOW_THREADS
             SDL_RemoveTimer(id);
         Py_END_ALLOW_THREADS
-        self->id = 0;
     }
-    Py_CLEAR(self->callback);
 }
 
 static void PySDL_Timer_Type_dealloc(PySDL_Timer *self) {

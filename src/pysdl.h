@@ -96,7 +96,7 @@ extern PyTypeObject PySDL_Gamepad_Type;
 typedef struct {
     PyObject_HEAD
     SDL_TimerID id;
-    PyObject *callback;  // owned; released when the timer is removed
+    unsigned long long token;  // key of the callable in pysdl_Timer.c's _timers (0: none)
 } PySDL_Timer;
 extern PyTypeObject PySDL_Timer_Type;
 

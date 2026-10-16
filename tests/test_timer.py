@@ -1,9 +1,20 @@
-'''Phase 6: SDL2.Timer (callback fires on SDL's timer thread).'''
+'''SDL3.Timer (callback fires on SDL's timer thread).'''
 
 import threading
 import time
 
 import pytest
+
+
+def _wait(condition, timeout=3.0):
+    '''Poll instead of sleeping a fixed time: CI machines (macOS especially,
+    which coalesces timers) can run a 10 ms timer far slower than asked.'''
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return condition()
 
 
 def test_timer_fires_and_stops_on_zero(sdl):
@@ -15,7 +26,8 @@ def test_timer_fires_and_stops_on_zero(sdl):
 
     timer = sdl.Timer(20, callback)
     assert timer.id != 0
-    time.sleep(0.25)
+    assert _wait(lambda: len(hits) >= 3)
+    time.sleep(0.1)  # it returned 0 on the third call: no fourth may follow
 
     assert len(hits) == 3
     assert hits[0] == 20
@@ -30,11 +42,10 @@ def test_timer_none_return_repeats_until_removed(sdl):
         return None
 
     timer = sdl.Timer(10, callback)
-    time.sleep(0.1)
-    fired = count[0]
-    assert fired > 3
+    assert _wait(lambda: count[0] > 3)  # None keeps it repeating
 
     timer.Remove()
+    fired = count[0]
     assert timer.id == 0
     time.sleep(0.05)
     assert count[0] == fired  # no more callbacks after Remove
@@ -61,9 +72,9 @@ def test_timer_callback_runs_on_another_thread(sdl):
         return 0
 
     timer = sdl.Timer(10, callback)
-    time.sleep(0.1)
+    assert _wait(lambda: thread_ids)
     assert timer.id is not None  # keep the timer alive until it fires
-    assert thread_ids and thread_ids[0] != main
+    assert thread_ids[0] != main
 
 
 def test_empty_timer_has_no_id(sdl):
@@ -75,11 +86,52 @@ def test_dropping_timer_object_removes_it(sdl):
 
     count = [0]
     timer = sdl.Timer(10, lambda i: count.__setitem__(0, count[0] + 1) or None)
-    time.sleep(0.05)
-    assert count[0] > 0
+    assert _wait(lambda: count[0] > 0)
 
     del timer
     gc.collect()
     fired = count[0]
     time.sleep(0.05)
     assert count[0] == fired  # the timer stopped when its wrapper was collected
+
+
+def test_dropping_timers_mid_callback_is_safe(sdl):
+    # SDL_RemoveTimer doesn't wait for a callback already under way. Timers used
+    # to hand SDL the Python callable itself, so dropping one while its callback
+    # waited for the GIL called a freed object (a segfault in every run of this
+    # loop). Run in a subprocess: the failure mode is a crash.
+    import os
+    import subprocess
+    import sys
+    code = (
+        'import gc, SDL3\n'
+        'SDL3.Init(SDL3.INIT_EVENTS)\n'
+        'for _ in range(1500):\n'
+        '    hits = []\n'
+        '    timers = [SDL3.Timer(1, lambda i, h=hits: h.append(i) or None) for _ in range(4)]\n'
+        '    for _ in range(2000):\n'
+        '        pass\n'
+        '    del timers\n'
+        '    gc.collect()\n'
+        'print("ok")\n'
+    )
+    env = dict(os.environ, PYTHONPATH=os.path.dirname(sdl.__file__))
+    out = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True,
+                         text=True, timeout=60)
+    assert out.returncode == 0 and out.stdout.strip() == 'ok', (out.returncode, out.stderr)
+
+
+def test_timer_can_remove_itself(sdl):
+    fired = []
+    holder = {}
+
+    def once(interval):
+        fired.append(interval)
+        holder['timer'].Remove()  # from inside its own callback
+        return interval
+
+    holder['timer'] = sdl.Timer(5, once)
+    assert _wait(lambda: fired)
+    time.sleep(0.05)  # removed itself: no second call may follow
+    assert len(fired) == 1
+    assert holder['timer'].id == 0
