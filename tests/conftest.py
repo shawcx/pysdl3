@@ -1,6 +1,6 @@
 '''Shared pytest setup: run headless, import the freshly built extension.'''
 
-import glob
+import importlib.machinery
 import os
 import pathlib
 import subprocess
@@ -15,20 +15,22 @@ os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def _built_module_dir():
-    for path in sorted(glob.glob(str(_ROOT / 'build' / 'lib*'))):
-        if glob.glob(os.path.join(path, 'SDL3*')):
-            return path
-    return None
+def _built_module():
+    # build/ keeps a lib.* dir per platform (one per macOS version, say), so
+    # take the newest extension this interpreter can import, not the first.
+    built = [p for suffix in importlib.machinery.EXTENSION_SUFFIXES
+             for p in (_ROOT / 'build').glob('lib*/SDL3' + suffix)]
+    return max(built, key=lambda p: p.stat().st_mtime, default=None)
 
 
-_moddir = _built_module_dir()
-if _moddir is None:
+_module = _built_module()
+_newest_source = max(p.stat().st_mtime for p in (_ROOT / 'src').glob('*.[ch]'))
+if _module is None or _module.stat().st_mtime < _newest_source:
     subprocess.run([sys.executable, 'setup.py', 'build'], cwd=_ROOT, check=True)
-    _moddir = _built_module_dir()
+    _module = _built_module()
 
-if _moddir is not None and _moddir not in sys.path:
-    sys.path.insert(0, _moddir)
+if _module is not None and str(_module.parent) not in sys.path:
+    sys.path.insert(0, str(_module.parent))
 
 
 @pytest.fixture(scope='session')

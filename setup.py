@@ -69,6 +69,7 @@ setuptools.setup(
         setuptools.Extension(
             'SDL3',
             source_files,
+            depends       = glob.glob('./src/*.h'),
             define_macros = defines,
             include_dirs  = include_dirs,
             library_dirs  = library_dirs,

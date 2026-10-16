@@ -40,8 +40,9 @@ ad-hoc lookups.
 ## Tests
 
 `tests/` is a headless pytest suite (`pip install pytest`, then `python3 -m
-pytest`). `tests/conftest.py` forces the `dummy` video/audio drivers, builds the
-extension if `build/` is missing, and puts it on `sys.path`; the `sdl` fixture
+pytest`). `tests/conftest.py` forces the `dummy` video/audio drivers, (re)builds the
+extension when `build/` has none for this interpreter or `src/` is newer, and
+puts the newest one on `sys.path`; the `sdl` fixture
 does one `Init`/`Quit` per session. Run one file with `python3 -m pytest
 tests/test_audio.py`.
 
