@@ -48,7 +48,8 @@ tests/test_audio.py`.
 `example/` holds runnable example programs, most of which open a window and need
 a display:
 - `python3 example/info.py` — prints CPU/display/renderer info, no window
-- `python3 example/draw.py` — primitives, blend modes, render-to-texture, geometry
+- `python3 example/draw.py [out.png]` — primitives, blend modes, render-to-texture,
+  geometry; with a path it saves a screenshot (`docs/screenshot.png`) and exits
 - `python3 example/surface.py [out.png]` — software-surface compositing, no window
 - `python3 example/keyboard.py` — keyboard / text-input / mouse event echo, cursors
 - `python3 example/gamepad.py [--virtual]` — gamepad / joystick monitor

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 
 # Primitives, blend modes, and a render-to-texture pass. Esc or close to quit.
+# With an output path, renders a few frames, saves a PNG screenshot and exits.
 
 import math
+import sys
 import SDL3
+
+screenshot = sys.argv[1] if len(sys.argv) > 1 else None
 
 SDL3.Init(SDL3.INIT_VIDEO)
 
@@ -76,6 +80,12 @@ while running:
             ((cx + 50, cy + 40), (80, 255, 80, 255)),
             ((cx - 50, cy + 40), (80, 80, 255, 255)),
         ])
+
+    if screenshot and frame == 90:
+        pixels = renderer.RenderReadPixels(format=SDL3.PIXELFORMAT_RGB24)
+        size = renderer.GetRendererOutputSize()
+        SDL3.CreateSurfaceFrom(pixels, size, SDL3.PIXELFORMAT_RGB24).SavePNG(screenshot)
+        running = False
 
     renderer.Present()
 
