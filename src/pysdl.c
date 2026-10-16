@@ -252,6 +252,11 @@ PyMODINIT_FUNC PyInit_SDL3(void) {
         || 0 > PyModule_AddFunctions(module, pysdl_image_methods)) {
         return NULL;
     }
+#ifdef PYSDL_HAVE_MIXER
+    if(0 > PySDL_Mixer_Register(module)) {
+        return NULL;
+    }
+#endif
 
 #ifdef PYSDL_HAVE_TTF
     if(0 > _add_type(module, &PySDL_Font_Type, "Font", NULL)
@@ -356,6 +361,9 @@ static PyObject * PySDL_QuitSubSystem(PyObject *self, PyObject *arg) {
 }
 
 static PyObject * PySDL_Quit(PyObject *self, PyObject *ign) {
+#ifdef PYSDL_HAVE_MIXER
+    PySDL_MixerShutdown();  // before SDL closes the audio devices it mixes into
+#endif
     bool events = 0 != SDL_WasInit(SDL_INIT_EVENTS);
     PySDL_TimersHold();  // SDL stops the timer thread only after everything else
     Py_BEGIN_ALLOW_THREADS

@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A CPython C extension that exposes SDL3 (plus SDL3_image, and SDL3_ttf when
-available) to Python 3 as a single module named `SDL3`. It is a thin, hand-written binding: only the subset of SDL
+A CPython C extension that exposes SDL3 (plus SDL3_image, and SDL3_ttf /
+SDL3_mixer when they are installed) to Python 3 as a single module named
+`SDL3`. It is a thin, hand-written binding: only the subset of SDL
 the author needed is wrapped, and wrapped functions/methods drop the `SDL_`
 prefix (`SDL_GetPlatform` → `SDL3.GetPlatform`, `SDL_RenderPresent` →
 `Renderer.Present`). Constant names follow SDL3 minus the `SDL_` prefix
@@ -21,6 +22,11 @@ shim in `pysdl.h` below 3.13) and SDL 3.2+. System dependencies first:
 - macOS: `brew install sdl3 sdl3_image` (+ `sdl3_ttf` for text)
 - Debian 13+ / Ubuntu 25.10+: `apt install build-essential pkg-config python3-dev
   python3-venv libsdl3-dev libsdl3-image-dev` (+ `libsdl3-ttf-dev`)
+- Optional: SDL3_mixer (`brew install sdl3_mixer`; Debian has `libsdl3-mixer-dev`
+  only from forky / sid, not 13). `setup.py`'s `OPTIONAL` table builds it in when
+  pkg-config (else its header) finds it, defining `PYSDL_HAVE_MIXER`;
+  `PYSDL_MIXER=0` leaves it out. Without it `SDL3.Mixer*` / `MIX_*` are absent
+  and `tests/test_mixer.py` skips. It is not a `debian/control` Build-Depend.
 
 Then, in a venv (Homebrew and Debian Pythons refuse a bare `pip install`, PEP 668;
 on macOS plain `python3` may be Xcode's 3.9, so create it with Homebrew's):
@@ -73,8 +79,9 @@ then `fc-match`); its `ttf` fixture does `TTF_Init` / `TTF_Quit` per test.
 CI (`.github/workflows/tests.yml`) runs on push / PR. In a `debian:trixie`
 container (SDL 3.2, Python 3.13 — GitHub's Ubuntu images have no libsdl3) it
 builds the Debian package (which runs the suite), lints it with lintian, runs
-the autopkgtest and uploads the `.deb` as an artifact; on macOS it runs the
-suite with Homebrew SDL at Python 3.10 and 3.14.
+the autopkgtest and uploads the `.deb` as an artifact (no SDL3_mixer there: its
+tests skip); on macOS it runs the suite with Homebrew SDL, SDL3_mixer included,
+at Python 3.10 and 3.14.
 
 `example/` holds runnable example programs, most of which open a window and need
 a display:
@@ -100,6 +107,10 @@ a display:
   exits after N frames (runs headless)
 - `python3 example/text.py [--font PATH] [--frames N]` — SDL3_ttf render modes,
   styles, wrapped text, metrics (needs the SDL3_ttf build)
+- `python3 example/mixer.py [--seconds N | --offline out.wav]` — SDL3_mixer: tagged
+  tracks, stereo panning, fade in / out, an arpeggio driven by a stopped
+  callback, a metering group post-mix; `--offline` renders through
+  `Mixer.Generate` to a WAV (both run headless)
 - `python3 example/simple.py <image>` — load an image, show it, event loop
 - `python3 example/audio.py` — audio callback + OpenGL visualizer (also needs a `pygl` module)
 - `example/adjust.py` — fullscreen test pattern on every display
@@ -150,6 +161,17 @@ a display:
   `pysdl_Cursor.c`, `pysdl_Joystick.c`, `pysdl_Gamepad.c`, `pysdl_Haptic.c`,
   `pysdl_Sensor.c` do the same for their functions. Use this pattern to add a
   batch of module functions from a new file.
+- `src/pysdl_Mixer.c` — optional SDL3_mixer, all inside `#ifdef PYSDL_HAVE_MIXER`
+  (an empty object file without it). `PySDL_Mixer_Register()` (called from
+  `PyInit_SDL3`) adds `SDL3.Mixer` (`MIX_Mixer`: on a device, or offline with
+  `device=None` and `Generate(nbytes)`), `MixerAudio` (`MIX_Audio`; `SDL3.Audio`
+  was taken), `MixerTrack`, `MixerGroup`, `MixerDecoder` and the `MIX_*`
+  functions (prefix kept, like `IMG_`). Methods drop `MIX_` and the type word
+  (`MIX_PlayTrack` → `MixerTrack.Play`, `MIX_SetTrackGain` → `SetGain`);
+  `Play(**options)` / `Mixer.PlayTag(tag, **options)` map keywords onto the
+  `MIX_PROP_PLAY_*` properties. Specs are `(freq, format, channels)`.
+  `PySDL_MixerShutdown()` matches every outstanding `MIX_Init` before
+  `SDL3.Quit()` stops audio under SDL_mixer.
 - `src/pysdl_util.c` — `PySDL_New()` (wrapper allocation), `PySDL_ThreadEnter` /
   `PySDL_ThreadLeave` (GIL handling for SDL-owned threads), and the
   `PyToRect` / `PyToPoint` / `PyToColor` / `PyToFRect` / `PyToFPoint` /
@@ -367,6 +389,24 @@ SDL forgets some of these behind our back: stopping the event subsystem drops
 the filter and watchers, `SDL_Quit` drops every hint callback, so `Quit` /
 `QuitSubSystem` (`pysdl.c`) call `PySDL_EventWatchesGone()` /
 `PySDL_HintCallbacksGone()`.
+
+SDL3_mixer (`pysdl_Mixer.c`) mixes on the device's audio thread, or on the
+caller of `Mixer.Generate`, **holding the mixer's mutex** (`MIX_LockMixer`'s,
+recursive) while it runs the stopped / raw / cooked / group / post-mix
+callbacks, which then take the GIL. So every method of a mixer-bound object
+first takes that mutex with the GIL released (`_hold`) and then runs holding
+both — the same order — and `busy` counts holders: `Mixer.Destroy` nulls the
+Track / Group wrappers, waits for `busy` to drain, and only then frees the
+mixer. Lifetimes: a Track / Group holds its Mixer; a Track holds its
+`MixerAudio` / `AudioStream` input, released only after SDL frees the mixer
+(`MIX_DestroyMixer` still reads a track's stream). Callbacks use the token
+pattern (`_callbacks`: token → per-slot callables); PCM callbacks get a `bytes`
+copy and may return same-sized bytes to replace it, never a pointer into SDL's
+buffer. A mixer wrapper that dies on its own mixing thread (or a device mixer
+off the main thread) hands `MIX_DestroyMixer` to the main thread with
+`Py_AddPendingCall` (cancelled if `MIX_Quit` frees it first). `Destroy` /
+`MIX_Quit` / `MIX_Init` raise inside mixer callbacks, and a track can't be
+changed from its own raw / cooked callback (SDL calls that undefined).
 
 Virtual-joystick callbacks (`JoystickAttachVirtualEx(..., rumble=fn, ...)`,
 `pysdl_Joystick.c`) use the Timer's token design: SDL's userdata is an integer

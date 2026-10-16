@@ -852,13 +852,113 @@ example: `example/text.py`. Port of pysdl2 `c510c83`.
   needs ownership tracking), `TTF_CopyFont`, `TTF_GetGlyphImage(ForIndex)`, the
   outline line-cap / join properties.
 
+## Phase 16 - SDL3_mixer (optional)  — DONE
+
+Not a port of pysdl2's phase 16: SDL3_mixer replaced SDL2_mixer's chunks,
+channels and music with mixers, tracks, groups and tags, so this binds the new
+API (3.2.0+; 3.2.4 tested) in the binding's style. Tests: `tests/test_mixer.py`
+(offline mixers checked sample by sample, device mixers on the dummy driver's
+real audio thread, subprocess stress / teardown cases; skips without
+SDL3_mixer); example: `example/mixer.py` (`--seconds N`, or `--offline out.wav`).
+
+- **Optional dependency**: `setup.py`'s `OPTIONAL` table (shared with
+  SDL3_ttf) links `SDL3_mixer` and defines `PYSDL_HAVE_MIXER` when pkg-config
+  `sdl3-mixer` (else `SDL3_mixer/SDL_mixer.h`) is found; `PYSDL_MIXER=0` opts
+  out. Debian 13 has no SDL3_mixer (forky / sid do), so the Debian build and
+  package go without it; macOS CI installs it. New `src/pysdl_Mixer.c`, wholly
+  `#ifdef PYSDL_HAVE_MIXER`.
+- Module (prefix kept, like `IMG_`): `MIX_Version()` -> `(3, 2, 4)`,
+  `MIX_Init` / `MIX_Quit` (counted: the final `MIX_Quit` invalidates every
+  wrapper), `MIX_GetNumAudioDecoders` / `MIX_GetAudioDecoder(i)` /
+  `MIX_GetAudioDecoders()`, `MIX_MSToFrames` / `MIX_FramesToMS`,
+  `MIX_LoadRawAudio(data, spec, mixer=None)` (copied),
+  `MIX_CreateSineWaveAudio(hz, amplitude, ms=-1, mixer=None)`; constants
+  `MIX_DURATION_UNKNOWN` / `MIX_DURATION_INFINITE`, `SDL_MIXER_VERSION`.
+  Nothing works before `MIX_Init()` (raises). `SDL3.Quit()` first matches every
+  outstanding `MIX_Init`, since `SDL_Quit` would stop audio under SDL_mixer.
+- **`SDL3.Mixer(spec=None, device=AUDIO_DEVICE_DEFAULT_PLAYBACK)`**
+  (`MIX_CreateMixerDevice`); `device=None` with a spec is an offline
+  `MIX_CreateMixer` driven by `Generate(nbytes)` -> `(data, mixed_bytes)`.
+  `Destroy`, `GetFormat`, `GetDevice`, `Lock` / `Unlock` (same thread, paired;
+  for atomic multi-track changes), `CreateTrack`, `CreateGroup`,
+  `LoadAudio(src, ...)`, `PlayAudio(audio)` (fire and forget),
+  `PlayTag(tag, **options)`, `StopAllTracks` / `StopTag(tag, fade_out_ms=0)`,
+  `Pause/ResumeAllTracks`, `Pause/ResumeTag`, `Set/GetGain`, `SetTagGain`,
+  `Set/GetFrequencyRatio`, `GetTaggedTracks(tag)` (wrapped tracks only),
+  `SetPostMixCallback(fn)`.
+- **`SDL3.MixerAudio(src, mixer=None, predecode=False, *, decoder=None,
+  skip_metadata=False, ignore_loops=False)`** (`MIX_LoadAudioWithProperties`;
+  `SDL3.Audio` is the device wrapper): `src` is a path, os.PathLike or bytes,
+  pinned only for the call (SDL_mixer caches it all). `ignore_loops` needs
+  3.2.4. `Destroy` (refcounted by SDL: tracks keep playing it),
+  `GetDuration`, `GetFormat`, `GetMetadata()` -> dict (title / artist / album /
+  copyright / track / total_tracks / year / duration_frames /
+  duration_infinite, as present), `MSToFrames` / `FramesToMS`.
+- **`SDL3.MixerTrack(mixer)`** / `Mixer.CreateTrack()`: inputs `SetAudio`,
+  `SetAudioStream(SDL3.AudioStream)` (kept alive while assigned),
+  `SetIOStream(src)` / `SetRawIOStream(src, spec)` (a path, or bytes copied into
+  a stream the mixer owns), `GetAudio` / `GetAudioStream`; `Play(**options)`
+  (`loops`, `max_frame` / `max_ms`, `start_frame` / `start_ms`,
+  `loop_start_frame` / `loop_start_ms`, `fade_in_frames` / `fade_in_ms`,
+  `fade_in_start_gain`, `append_silence_frames` / `append_silence_ms`,
+  `halt_when_exhausted`, `start_order` with 3.2.2), `Stop(fade_out_frames=0, *,
+  fade_out_ms=None)`, `Pause` / `Resume` / `Playing` / `Paused`, tags
+  (`Tag` / `Untag` / `GetTags`), position / loops / remaining / fade frames,
+  `MSToFrames` / `FramesToMS`, `Set/GetGain`, `Set/GetFrequencyRatio`,
+  `SetOutputChannelMap(seq | None)`, `SetStereo((l, r) | None)`,
+  `Set3DPosition((x, y, z) | None)` / `Get3DPosition`, `SetGroup`,
+  `GetMixer`, `Destroy`; callbacks `SetStoppedCallback(fn(track))`,
+  `SetRawCallback` / `SetCookedCallback(fn(track, spec, pcm))`.
+- **`SDL3.MixerGroup(mixer)`** / `Mixer.CreateGroup()`: `Destroy`, `GetMixer`,
+  `SetPostMixCallback(fn(group, spec, pcm))`.
+- **`SDL3.MixerDecoder(src, *, decoder=None)`** (`MIX_CreateAudioDecoder_IO`):
+  `GetFormat`, `Decode(nbytes, spec=None)` -> bytes (`b''` at the end, GIL
+  released), `Destroy`.
+- **Threading**: the mixing thread (device audio thread, or `Generate`'s
+  caller) holds the mixer mutex while running callbacks, which then take the
+  GIL; every method takes that (recursive) mutex with the GIL released first,
+  so the order is the same everywhere and callbacks can call back in.
+  Verified by a subprocess stress test (two Python threads hammering tracks
+  and tags, creating and dropping tracks, while stopped / raw / post-mix
+  callbacks re-enter the mixer). `Destroy` / `MIX_Quit` / `MIX_Init` raise
+  inside mixer callbacks; a track can't be changed from its own raw / cooked
+  callback (undefined in SDL). A mixer wrapper that dies on its own mixing
+  thread (the post-mix callback held the last reference), or a device mixer
+  dropped off the main thread, is freed later on the main thread
+  (`Py_AddPendingCall`; cancelled if `MIX_Quit` frees it first).
+- **Callbacks** use the token pattern (`_callbacks`: token -> per-slot
+  callables, dropped before the object goes); a pending exception is set
+  aside around them. PCM callbacks get the float32 samples as `bytes` and may
+  return same-sized bytes to replace them (anything else is reported and
+  ignored); spec is always F32.
+- **Lifetimes**: Track / Group wrappers hold their Mixer; `Mixer.Destroy`
+  (and the final `MIX_Quit`) null them, waiting for in-flight calls, and keep
+  their inputs alive until SDL has freed the mixer — `MIX_DestroyMixer` still
+  touches each track's AudioStream while stopping it (valgrind caught the
+  early release).
+- **SDL quirks found**: `MIX_SetTrackOutputChannelMap(track, NULL, 0)` fails
+  ("Wrong number of channels": SDL checks the count even for a NULL map), so
+  `SetOutputChannelMap(None)` retries with the mixer's channels, then 2, then
+  1 (stereo / 3D modes). Finite `MIX_CreateSineWaveAudio` tones end on one NaN
+  sample frame (SDL_mixer 3.2.4 + SDL 3.4.18; valgrind flags an uninitialised
+  read inside SDL called from SDL_mixer at that point), which poisons a mix;
+  the example uses raw PCM notes. `halt_when_exhausted=False` keeps a track
+  "playing" (silence) after its input and any fade-out end.
+- **Not wrapped, deliberately**: `MIX_LoadAudioNoCopy` / `MIX_LoadRawAudioNoCopy`
+  (SDL would keep reading Python's buffer), the `*_Properties` getters beyond
+  audio metadata and the mixer's device id, `MIX_GetTrackAudio` /
+  `MIX_GetTrackAudioStream` as SDL pointers (the wrapper returns the object it
+  was given instead).
+
 ## Explicitly out of scope
 
 Threads / mutexes / semaphores / condition vars / atomics (use Python's),
 `SDL_Log*`, assertions, `SDL_main` / main callbacks, platform-specific APIs
 (Android / iOS / WinRT), `GetWindowWMInfo`, stdinc shims. Further satellite
-libraries (`SDL3_net`, ...) are a separate effort; if added, follow the Phase 14
-pattern (an `OPTIONAL` row in `setup.py`, one `#ifdef PYSDL_HAVE_<LIB>` file).
+libraries (`SDL3_net`, ...) are a separate effort; if added, follow the
+Phase 14 / 16 pattern (an `OPTIONAL` row in `setup.py`, one
+`#ifdef PYSDL_HAVE_<LIB>` file). SDL3_ttf (phase 14) and SDL3_mixer
+(phase 16) are built in when present.
 
 Removed by SDL3 with no in-style replacement (dropped from the binding in the
 SDL3 port): gesture recognition (`MULTIGESTURE` / `DOLLAR*`, `RecordGesture`,

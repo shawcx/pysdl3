@@ -17,6 +17,7 @@ source_files = glob.glob('./src/*.c')
 OPTIONAL = [
     # pkg-config name, library, define, opt-out env var
     ('sdl3-ttf', 'SDL3_ttf', 'PYSDL_HAVE_TTF', 'PYSDL_TTF'),
+    ('sdl3-mixer', 'SDL3_mixer', 'PYSDL_HAVE_MIXER', 'PYSDL_MIXER'),
 ]
 
 # Homebrew installs SDL3 keg-only-ish: the .pc files live under each formula's
@@ -25,10 +26,12 @@ _BREW_PKGCONFIG = [
     '/opt/homebrew/opt/sdl3/lib/pkgconfig',
     '/opt/homebrew/opt/sdl3_image/lib/pkgconfig',
     '/opt/homebrew/opt/sdl3_ttf/lib/pkgconfig',
+    '/opt/homebrew/opt/sdl3_mixer/lib/pkgconfig',
     '/opt/homebrew/lib/pkgconfig',
     '/usr/local/opt/sdl3/lib/pkgconfig',
     '/usr/local/opt/sdl3_image/lib/pkgconfig',
     '/usr/local/opt/sdl3_ttf/lib/pkgconfig',
+    '/usr/local/opt/sdl3_mixer/lib/pkgconfig',
     '/usr/local/lib/pkgconfig',
 ]
 

@@ -195,6 +195,15 @@ int PySDL_TTF_Constants(PyObject *module);          // pysdl_Font.c    (TTF_STYL
 // ("TGA") or is NULL. NULL with an exception set on failure.
 SDL_Texture * PySDL_IMG_LoadTexture(SDL_Renderer *renderer, PyObject *src, const char *type);
 
+#ifdef PYSDL_HAVE_MIXER
+// Optional SDL3_mixer support (pysdl_Mixer.c): adds SDL3.Mixer / MixerAudio /
+// MixerTrack / MixerGroup / MixerDecoder and the MIX_* functions; 0 or -1.
+int  PySDL_Mixer_Register(PyObject *module);
+// Matches every outstanding MIX_Init (invalidating the wrappers) - SDL_Quit
+// would otherwise stop audio under SDL_mixer's feet.
+void PySDL_MixerShutdown(void);
+#endif
+
 //=========================================================
 // Helpers (pysdl_util.c)
 //=========================================================
