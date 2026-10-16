@@ -301,11 +301,13 @@ static PyObject * PySDL_QuitSubSystem(PyObject *self, PyObject *arg) {
         return NULL;
     }
     SDL_QuitSubSystem((SDL_InitFlags)flags);
+    PySDL_CheckVideoGone();  // subsystems are refcounted: only if video really stopped
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Quit(PyObject *self, PyObject *ign) {
     SDL_Quit();
+    PySDL_InvalidateWindows();  // SDL_Quit destroyed every window
     Py_RETURN_NONE;
 }
 

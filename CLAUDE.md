@@ -177,6 +177,17 @@ the caller's buffer alive for the surface's lifetime — SDL does not copy it.
 `SDL_GetPixelFormatDetails(surface->format)` and the palette with
 `SDL_GetSurfacePalette(surface)`.
 
+Window surfaces are tracked so they never dangle (`pysdl_Window.c`, on the
+`PySDL_Registry` helper in `pysdl_util.c`): `GetWindowSurface()` returns one
+`Surface` per window (`window_id` set, shared across wrappers), and when SDL
+frees it — replaced on the next `GetWindowSurface()` after a resize, or with
+the window — `PySDL_SurfaceDetach` points the wrapper at an empty 0×0 surface
+of its own. Every `Window` wrapper is registered too: destroying a window nulls
+its borrowed wrappers, and `Quit()` / a `QuitSubSystem()` that stops video
+(`PySDL_CheckVideoGone`) nulls every `Window` and empties every window surface.
+Getters such as `Surface.w` read the SDL struct directly, so anything that lets
+SDL free a surface under a wrapper must detach it first.
+
 ### Threading
 
 Blocking SDL calls (`SDL_LoadBMP`, `IMG_Load`, `SDL_WaitEvent`,

@@ -191,3 +191,36 @@ PyObject * PySDL_WrapWindow(SDL_Window *window) {
     wrapper->shouldFree = 0;
     return (PyObject *)wrapper;
 }
+
+//=========================================================
+// wrapper registries
+//=========================================================
+
+int PySDL_RegistryAdd(PySDL_Registry *reg, PyObject *obj) {
+    for(Py_ssize_t idx = 0; idx < reg->len; ++idx) {
+        if(reg->items[idx] == obj) {
+            return 0;
+        }
+    }
+    if(reg->len == reg->cap) {
+        Py_ssize_t cap = reg->cap ? reg->cap * 2 : 16;
+        PyObject **grown = PyMem_Realloc(reg->items, cap * sizeof(PyObject *));
+        if(NULL == grown) {
+            PyErr_NoMemory();
+            return -1;
+        }
+        reg->items = grown;
+        reg->cap = cap;
+    }
+    reg->items[reg->len++] = obj;
+    return 0;
+}
+
+void PySDL_RegistryRemove(PySDL_Registry *reg, PyObject *obj) {
+    for(Py_ssize_t idx = 0; idx < reg->len; ++idx) {
+        if(reg->items[idx] == obj) {
+            reg->items[idx] = reg->items[--reg->len];  // order doesn't matter
+            return;
+        }
+    }
+}

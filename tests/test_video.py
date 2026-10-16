@@ -166,3 +166,102 @@ def test_vulkan_functions_present(sdl, window):
             window.Vulkan_CreateSurface('not an int')
     finally:
         sdl.Vulkan_UnloadLibrary()
+
+
+# --- window-surface tracking and teardown invalidation ---------------------
+
+def test_window_surface_is_one_object(sdl):
+    window = sdl.Window('surface-identity', (32, 24))
+    surface = window.GetWindowSurface()
+    assert window.GetWindowSurface() is surface
+    borrowed = sdl.GetWindowFromID(window.GetWindowID())
+    assert borrowed.GetWindowSurface() is surface  # shared across wrappers
+
+
+def test_window_surface_replaced_after_resize(sdl):
+    window = sdl.Window('surface-resize', (32, 24), flags=sdl.WINDOW_RESIZABLE)
+    old = window.GetWindowSurface()
+    window.SetWindowSize((64, 48))
+    sdl.PumpEvents()
+    assert (old.w, old.h) == (32, 24)  # SDL keeps it until the next GetWindowSurface
+    new = window.GetWindowSurface()
+    assert new is not old and (new.w, new.h) == (64, 48)
+    assert (old.w, old.h) == (0, 0)    # emptied, not dangling
+    old.FillRect(None, (1, 2, 3))      # harmless
+    new.FillRect(None, (1, 2, 3))
+    window.UpdateWindowSurface()
+
+
+def test_window_surface_emptied_on_destroy(sdl):
+    window = sdl.Window('surface-destroy', (16, 16))
+    surface = window.GetWindowSurface()
+    del window  # SDL frees the surface with the window
+    assert (surface.w, surface.h) == (0, 0)
+    surface.FillRect(None, (1, 2, 3))
+
+
+def test_borrowed_window_invalidated_with_owner(sdl):
+    window = sdl.Window('owner', (16, 16))
+    borrowed = sdl.GetWindowFromID(window.GetWindowID())
+    del window
+    with pytest.raises(sdl.error):
+        borrowed.GetWindowID()
+
+
+def _run_teardown_script(sdl, body):
+    # Quit tears down the session the `sdl` fixture shares: use a subprocess.
+    import os
+    import subprocess
+    import sys
+    import textwrap
+    code = textwrap.dedent('''
+        import gc
+        import SDL3
+
+        def raises(fn):
+            try:
+                fn()
+            except SDL3.error:
+                return True
+            return False
+
+        SDL3.Init(SDL3.INIT_VIDEO)
+    ''') + textwrap.dedent(body) + '\nprint("ok")\n'
+    env = dict(os.environ, PYTHONPATH=os.path.dirname(sdl.__file__))
+    out = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True, text=True)
+    assert out.returncode == 0 and out.stdout.strip().endswith('ok'), out.stderr or out.stdout
+
+
+def test_quit_invalidates_windows(sdl):
+    _run_teardown_script(sdl, '''
+        window = SDL3.Window('w', (32, 32))
+        surface = window.GetWindowSurface()
+        borrowed = SDL3.GetWindowFromID(window.GetWindowID())
+
+        SDL3.Quit()
+        assert raises(window.GetWindowID) and raises(borrowed.GetWindowID)
+        assert (surface.w, surface.h) == (0, 0)
+
+        # A new session can reuse window ids and addresses; old wrappers stay dead.
+        SDL3.Init(SDL3.INIT_VIDEO)
+        fresh = SDL3.Window('fresh', (16, 16))
+        assert raises(window.GetWindowID) and raises(borrowed.GetWindowID)
+        del window, borrowed, surface
+        gc.collect()
+        assert fresh.GetWindowID() > 0  # dropping the old wrappers didn't destroy it
+        SDL3.Quit()
+    ''')
+
+
+def test_quit_subsystem_respects_refcount(sdl):
+    _run_teardown_script(sdl, '''
+        window = SDL3.Window('w', (16, 16))
+        SDL3.InitSubSystem(SDL3.INIT_VIDEO)   # second reference
+        SDL3.QuitSubSystem(SDL3.INIT_VIDEO)   # video keeps running
+        assert window.GetWindowID() > 0
+        SDL3.QuitSubSystem(SDL3.INIT_VIDEO)   # now it stops
+        assert raises(window.GetWindowID)
+        del window
+        gc.collect()
+        SDL3.Quit()
+    ''')

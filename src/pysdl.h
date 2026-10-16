@@ -42,6 +42,7 @@ typedef struct {
     SDL_Surface *surface;
     int shouldFree;
     Py_buffer pixels;  // backing buffer for a *...From surface; pixels.obj == NULL otherwise
+    SDL_WindowID window_id;  // non-zero: this is that window's surface (tracked in pysdl_Window.c)
 } PySDL_Surface;
 extern PyTypeObject PySDL_Surface_Type;
 
@@ -165,5 +166,27 @@ PyObject * PointToPy(const SDL_Point *point);   // -> (x, y)
 
 // Wrap a window SDL still owns as a non-freeing SDL3.Window, or None for NULL.
 PyObject * PySDL_WrapWindow(SDL_Window *window);
+
+// A set of *borrowed* wrapper pointers: each wrapper adds itself when it takes
+// an SDL object and removes itself in tp_dealloc, so the set never holds a
+// dead object. Used to invalidate wrappers when SDL frees what they point at.
+typedef struct {
+    PyObject **items;
+    Py_ssize_t len, cap;
+} PySDL_Registry;
+int  PySDL_RegistryAdd(PySDL_Registry *reg, PyObject *obj);  // no-op if present; -1 on OOM
+void PySDL_RegistryRemove(PySDL_Registry *reg, PyObject *obj);
+
+// Point a Surface wrapper whose SDL surface was (or is about to be) freed by
+// SDL at a fresh empty 0x0 surface of its own, without freeing the old one, so
+// later use is harmless (pysdl_Surface.c).
+void PySDL_SurfaceDetach(PySDL_Surface *surface);
+
+// Window / window-surface tracking (pysdl_Window.c). SDL frees a window's
+// surface on the next SDL_GetWindowSurface after a resize and with the window;
+// it frees every window when video shuts down.
+void PySDL_WindowSurfaceForget(PySDL_Surface *surface);  // from Surface tp_dealloc
+void PySDL_InvalidateWindows(void);   // video is gone: null every Window, empty every window surface
+void PySDL_CheckVideoGone(void);      // PySDL_InvalidateWindows() if video is no longer running
 
 #endif // __PYSDL_H__

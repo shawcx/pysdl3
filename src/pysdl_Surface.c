@@ -107,10 +107,21 @@ static int PySDL_Surface_Type_init(PySDL_Surface *self, PyObject *args, PyObject
     self->surface = NULL;
     self->shouldFree = 1;
     self->pixels.obj = NULL;
+    self->window_id = 0;
     return 0;
 }
 
+void PySDL_SurfaceDetach(PySDL_Surface *self) {
+    // The old surface is SDL's to free (or already freed): don't touch it.
+    self->surface = SDL_CreateSurface(0, 0, SDL_PIXELFORMAT_RGBA32);
+    self->shouldFree = 1;
+    self->window_id = 0;
+}
+
 static void PySDL_Surface_Type_dealloc(PySDL_Surface *self) {
+    if(0 != self->window_id) {
+        PySDL_WindowSurfaceForget(self);
+    }
     if(NULL != self->surface) {
         if(self->shouldFree) {
             SDL_DestroySurface(self->surface);
