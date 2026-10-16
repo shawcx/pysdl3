@@ -173,27 +173,50 @@ static PyObject * PySDL_Texture_UpdateYUV(PySDL_Texture *self, PyObject *args, P
         return NULL;
     }
 
+    PyObject *result = NULL;
     SDL_Rect rect;
     SDL_Rect *rp = NULL;
-    bool ok = true;
     if(rect_py && rect_py != Py_None) {
-        ok = PyToRect(rect_py, &rect);
-        rp = ok ? &rect : NULL;
+        if(!PyToRect(rect_py, &rect)) {
+            goto done;
+        }
+        rp = &rect;
     }
 
-    if(ok) {
-        ok = SDL_UpdateYUVTexture(self->texture, rp,
-            yplane.buf, ypitch, uplane.buf, upitch, vplane.buf, vpitch);
+    // SDL copies the update rect clipped to the texture: h rows of w bytes from
+    // Y and (h+1)/2 rows of (w+1)/2 bytes from U and V. Check the pitches and
+    // buffers cover that rather than let it read past the end of a short buffer.
+    float fw, fh;
+    if(!SDL_GetTextureSize(self->texture, &fw, &fh)) {
+        result = _raise();
+        goto done;
+    }
+    SDL_Rect full = { 0, 0, (int)fw, (int)fh };
+    SDL_Rect area = full;
+    if(NULL == rp || SDL_GetRectIntersection(&full, rp, &area)) {
+        int cw = (area.w + 1) / 2, ch = (area.h + 1) / 2;
+        if(ypitch < area.w || upitch < cw || vpitch < cw
+            || yplane.len < (Py_ssize_t)ypitch * area.h
+            || uplane.len < (Py_ssize_t)upitch * ch
+            || vplane.len < (Py_ssize_t)vpitch * ch) {
+            PyErr_SetString(PyExc_ValueError,
+                "plane buffers or pitches are too small for the update area");
+            goto done;
+        }
     }
 
+    if(!SDL_UpdateYUVTexture(self->texture, rp,
+            yplane.buf, ypitch, uplane.buf, upitch, vplane.buf, vpitch)) {
+        result = _raise();
+        goto done;
+    }
+    result = Py_NewRef(Py_None);
+
+done:
     PyBuffer_Release(&yplane);
     PyBuffer_Release(&uplane);
     PyBuffer_Release(&vplane);
-
-    if(!ok) {
-        return PyErr_Occurred() ? NULL : _raise();
-    }
-    Py_RETURN_NONE;
+    return result;
 }
 
 static PyObject * PySDL_Texture_Lock(PySDL_Texture *self, PyObject *args) {

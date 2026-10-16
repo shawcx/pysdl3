@@ -63,3 +63,22 @@ def test_lock_region(sdl, renderer):
         assert len(view) == pitch * 2
     finally:
         tex.Unlock()
+
+
+def test_update_yuv_checks_plane_sizes(sdl, renderer):
+    # UpdateYUV used to hand the planes to SDL unchecked, so a short buffer
+    # made SDL read past its end.
+    tex = sdl.Texture(renderer, sdl.PIXELFORMAT_IYUV, sdl.TEXTUREACCESS_STREAMING, (4, 4))
+    y, u, v = b'\x80' * 16, b'\x80' * 4, b'\x80' * 4  # 4x4 luma, 2x2 chroma
+    tex.UpdateYUV(y, 4, u, 2, v, 2)
+    tex.UpdateYUV(y[:8], 4, u[:2], 2, v[:2], 2, rect=(0, 0, 4, 2))
+    tex.UpdateYUV(y[:8], 4, u[:2], 2, v[:2], 2, rect=(2, 2, 4, 4))  # clipped to 2x2
+    tex.UpdateYUV(b'\x80', 4, b'\x80', 2, b'\x80', 2, rect=(8, 8, 4, 4))  # off-texture: nothing read
+    with pytest.raises(ValueError):
+        tex.UpdateYUV(y[:15], 4, u, 2, v, 2)
+    with pytest.raises(ValueError):
+        tex.UpdateYUV(y, 4, u, 2, v[:3], 2)
+    with pytest.raises(ValueError):
+        tex.UpdateYUV(y, 0, u, 2, v, 2)
+    with pytest.raises(ValueError):
+        tex.UpdateYUV(y, 2, u, 2, v, 2)  # pitch below the 4-byte row
