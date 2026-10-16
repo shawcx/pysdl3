@@ -16,15 +16,20 @@ port. `docs/ROADMAP.md` holds the phase history and the style guide.
 
 ## Build & install
 
-System dependencies must be present first:
+Needs Python 3.10+ (`python_requires`; `Py_NewRef`, plus a `Py_IsFinalizing`
+shim in `pysdl.h` below 3.13) and SDL 3.2+. System dependencies first:
 - macOS: `brew install sdl3 sdl3_image`
-- Debian/Ubuntu (Trixie+): `apt install libsdl3-dev libsdl3-image-dev`
+- Debian 13+ / Ubuntu 25.10+: `apt install build-essential pkg-config python3-dev
+  python3-venv libsdl3-dev libsdl3-image-dev`
 
-Then:
-- `pip install .` — build and install the extension
+Then, in a venv (Homebrew and Debian Pythons refuse a bare `pip install`, PEP 668;
+on macOS plain `python3` may be Xcode's 3.9, so create it with Homebrew's):
+- `pip install .` — build (`pyproject.toml` → setuptools backend, which runs
+  `setup.py`) and install the extension
 - `python3 setup.py build` — compile in place under `build/` without installing
-- `python3 setup.py sdist` — source tarball; `MANIFEST.in` bundles `src/` so the
-  Debian package build (`stdeb`/`deb_dist`, see `.gitignore`) can compile from it
+- `python3 -m build` — sdist + wheel into `dist/` (`pip install build`);
+  `MANIFEST.in` bundles `src/` so the Debian package build (`make` → stdeb →
+  `deb_dist`, see `.gitignore`) can compile from it
 
 `setup.py` probes `pkg-config sdl3 sdl3-image` (seeding `PKG_CONFIG_PATH` with the
 Homebrew keg dirs — SDL3 ships no `sdl3-config`) and always appends `/usr/local`
@@ -35,7 +40,10 @@ and `/opt/homebrew` as a fallback. All of `src/*.c` is globbed into one
 emits the whole file from the installed SDL3 headers (curated header allowlist +
 blocklist + `_GEN_EXTRA` synthesized constants, all in the script). Regenerate it
 rather than hand-editing; `--emit <substr>` still prints pasteable lines for
-ad-hoc lookups.
+ad-hoc lookups. Constants missing from SDL 3.2.0 get an
+`#if SDL_VERSION_ATLEAST(...)` guard: the script diffs the headers of each
+release in `_GEN_RELEASES` (fetched once into `~/.cache/pysdl3-headers`); add a
+release there when a new SDL minor version ships.
 
 ## Tests
 
@@ -44,7 +52,12 @@ pytest`). `tests/conftest.py` forces the `dummy` video/audio drivers, (re)builds
 extension when `build/` has none for this interpreter or `src/` is newer, and
 puts the newest one on `sys.path`; the `sdl` fixture
 does one `Init`/`Quit` per session. Run one file with `python3 -m pytest
-tests/test_audio.py`.
+tests/test_audio.py`. In a venv the auto-build needs `setuptools` too
+(`pip install pytest setuptools`).
+
+CI (`.github/workflows/tests.yml`) runs the suite on push / PR in a
+`debian:trixie` container (SDL 3.2, Python 3.13 — GitHub's Ubuntu images have no
+libsdl3) and on macOS with Homebrew SDL at Python 3.10 and 3.14.
 
 `example/` holds runnable example programs, most of which open a window and need
 a display:
@@ -103,8 +116,10 @@ a display:
 - `src/_constants.c` — **generated** by `tools/gen_constants.py --generate`;
   `_constants(module)` registers ~1050 SDL3 enum/#define values as module int
   constants. Do not hand-edit: change the header allowlist / blocklist /
-  `_GEN_EXTRA` in the script and regenerate. The binding targets SDL 3.2+, so
-  there are no version guards.
+  `_GEN_EXTRA` in the script and regenerate. The binding targets SDL 3.2+;
+  constants newer than 3.2.0 are generated inside `SDL_VERSION_ATLEAST`
+  guards, and everything else must compile against 3.2 (CI's Debian job
+  checks).
 
 ### Object model
 

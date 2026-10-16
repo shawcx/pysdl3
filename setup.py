@@ -65,6 +65,7 @@ setuptools.setup(
     license          = 'MIT',
     description      = 'Python3 bindings for SDL3',
     long_description = open('README.rst').read(),
+    python_requires  = '>=3.10',
     ext_modules = [
         setuptools.Extension(
             'SDL3',

@@ -1,6 +1,10 @@
 SDL3
 ====
 
+.. image:: https://github.com/shawcx/pysdl3/actions/workflows/tests.yml/badge.svg
+   :target: https://github.com/shawcx/pysdl3/actions/workflows/tests.yml
+   :alt: tests
+
 Python 3 bindings for `SDL3 <https://libsdl.org>`_ and SDL3_image: windows,
 rendering, surfaces, textures, events, input, audio, gamepads, timers and more.
 Names drop the ``SDL_`` prefix (``SDL_RenderPresent`` → ``Renderer.Present``,
@@ -12,10 +16,13 @@ Names drop the ``SDL_`` prefix (``SDL_RenderPresent`` → ``Renderer.Present``,
 Install
 -------
 
-::
+Needs Python 3.10+ and SDL 3.2+. Install SDL3, then build into a virtualenv::
 
-    brew install sdl3 sdl3_image                    # macOS
-    sudo apt install libsdl3-dev libsdl3-image-dev  # Debian 13+ / Ubuntu 25.10+
+    brew install sdl3 sdl3_image        # macOS
+    sudo apt install build-essential pkg-config python3-dev python3-venv \
+        libsdl3-dev libsdl3-image-dev   # Debian 13+ / Ubuntu 25.10+
+
+    python3 -m venv .venv && . .venv/bin/activate
     pip install .
 
 Example
@@ -48,10 +55,10 @@ More in ``example/``; the screenshot is ``python3 example/draw.py docs/screensho
 Tests
 -----
 
-::
+Headless (dummy video / audio drivers); builds the extension if needed::
 
-    pip install pytest
-    python3 -m pytest
+    pip install pytest setuptools
+    python -m pytest
 
 License
 -------
