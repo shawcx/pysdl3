@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A CPython C extension that exposes SDL3 (plus SDL3_image) to Python 3 as a single
-module named `SDL3`. It is a thin, hand-written binding: only the subset of SDL
+A CPython C extension that exposes SDL3 (plus SDL3_image, and SDL3_ttf when
+available) to Python 3 as a single module named `SDL3`. It is a thin, hand-written binding: only the subset of SDL
 the author needed is wrapped, and wrapped functions/methods drop the `SDL_`
 prefix (`SDL_GetPlatform` → `SDL3.GetPlatform`, `SDL_RenderPresent` →
 `Renderer.Present`). Constant names follow SDL3 minus the `SDL_` prefix
@@ -18,9 +18,9 @@ port. `docs/ROADMAP.md` holds the phase history and the style guide.
 
 Needs Python 3.10+ (`python_requires`; `Py_NewRef`, plus a `Py_IsFinalizing`
 shim in `pysdl.h` below 3.13) and SDL 3.2+. System dependencies first:
-- macOS: `brew install sdl3 sdl3_image`
+- macOS: `brew install sdl3 sdl3_image` (+ `sdl3_ttf` for text)
 - Debian 13+ / Ubuntu 25.10+: `apt install build-essential pkg-config python3-dev
-  python3-venv libsdl3-dev libsdl3-image-dev`
+  python3-venv libsdl3-dev libsdl3-image-dev` (+ `libsdl3-ttf-dev`)
 
 Then, in a venv (Homebrew and Debian Pythons refuse a bare `pip install`, PEP 668;
 on macOS plain `python3` may be Xcode's 3.9, so create it with Homebrew's):
@@ -41,6 +41,14 @@ Homebrew keg dirs — SDL3 ships no `sdl3-config`) and always appends `/usr/loca
 and `/opt/homebrew` as a fallback. All of `src/*.c` is globbed into one
 `Extension`, so a new `.c` file is picked up automatically.
 
+Satellite libraries are **optional**: `setup.py`'s `OPTIONAL` table lists
+(pkg-config name, library, define, opt-out env var); each is linked, with its
+define (e.g. `PYSDL_HAVE_TTF`), when `pkg-config` finds it or, failing that,
+its header `<library>/SDL_<name>.h` is in an include dir. `PYSDL_TTF=0 python3
+setup.py build` forces a build without SDL3_ttf. Everything for one lives in
+its own file inside `#ifdef PYSDL_HAVE_<LIB>` (plus its include and type
+declarations in `pysdl.h` and its registration in `PyInit_SDL3`).
+
 `src/_constants.c` is **generated** — `python3 tools/gen_constants.py --generate`
 emits the whole file from the installed SDL3 headers (curated header allowlist +
 blocklist + `_GEN_EXTRA` synthesized constants, all in the script). Regenerate it
@@ -58,7 +66,9 @@ extension when `build/` has none for this interpreter or `src/` is newer, and
 puts the newest one on `sys.path`; the `sdl` fixture
 does one `Init`/`Quit` per session. Run one file with `python3 -m pytest
 tests/test_audio.py`. In a venv the auto-build needs `setuptools` too
-(`pip install pytest setuptools`).
+(`pip install pytest setuptools`). `tests/test_ttf.py` skips itself when the
+build has no SDL3_ttf or no TrueType font can be found (it tries DejaVu, Arial,
+then `fc-match`); its `ttf` fixture does `TTF_Init` / `TTF_Quit` per test.
 
 CI (`.github/workflows/tests.yml`) runs on push / PR. In a `debian:trixie`
 container (SDL 3.2, Python 3.13 — GitHub's Ubuntu images have no libsdl3) it
@@ -88,6 +98,8 @@ a display:
 - `python3 example/logical.py [--frames N]` — logical-presentation canvas: mouse
   picking, RenderGeometryRaw, LockToSurface, vsync / mode toggles; `--frames N`
   exits after N frames (runs headless)
+- `python3 example/text.py [--font PATH] [--frames N]` — SDL3_ttf render modes,
+  styles, wrapped text, metrics (needs the SDL3_ttf build)
 - `python3 example/simple.py <image>` — load an image, show it, event loop
 - `python3 example/audio.py` — audio callback + OpenGL visualizer (also needs a `pygl` module)
 - `example/adjust.py` — fullscreen test pattern on every display
@@ -119,8 +131,11 @@ a display:
 - `src/pysdl_Window.c`, `pysdl_Renderer.c`, `pysdl_Surface.c`, `pysdl_Texture.c`,
   `pysdl_Audio.c`, `pysdl_AudioStream.c`, `pysdl_PixelFormat.c`, `pysdl_Palette.c`,
   `pysdl_Cursor.c`, `pysdl_Joystick.c`, `pysdl_Gamepad.c`, `pysdl_Timer.c`,
-  `pysdl_Haptic.c`, `pysdl_Sensor.c` — one wrapped SDL object per file, each a
-  full `PyTypeObject` with `PySDL_<Type>_<Method>` functions.
+  `pysdl_Haptic.c`, `pysdl_Sensor.c`, `pysdl_Font.c` — one wrapped SDL object
+  per file, each a full `PyTypeObject` with `PySDL_<Type>_<Method>` functions.
+  `pysdl_Font.c` (SDL3_ttf, only under `PYSDL_HAVE_TTF`) also holds the `TTF_*`
+  module functions (`pysdl_ttf_methods`) and registers the `TTF_*` constants
+  (`PySDL_TTF_Constants`), which the SDL3-core generator doesn't scan.
 - `src/pysdl_Input.c` — module-level keyboard / mouse / touch / text-input
   functions. Its own `PyMethodDef` array (`pysdl_input_methods`) is merged into
   the module in `PyInit_SDL3` with `PyModule_AddFunctions`; `pysdl_Events.c`,
@@ -184,7 +199,8 @@ in the module namespace and constructible: `SDL3.Window(title=None, size=…, �
 `SDL3.Gamepad(instance_id)` (aliased `GameController`),
 `SDL3.Timer(interval_ms, callback)`, `SDL3.Haptic(instance_id)`,
 `SDL3.Sensor(instance_id)`,
-`SDL3.AudioStream(src_format, src_channels, src_rate, dst_…)`. SDL3 identifies
+`SDL3.AudioStream(src_format, src_channels, src_rate, dst_…)`, and with SDL3_ttf
+`SDL3.Font(path_or_bytes, ptsize=12.0, index=0, *, hdpi, vdpi)`. SDL3 identifies
 joystick / gamepad / haptic / sensor devices by an `SDL_*ID` (from
 `GetJoysticks()` / `GetHaptics()` / `GetSensors()`), not a device index. Every
 `tp_init` takes its primary arg as *optional* — with none given it just nulls
@@ -192,8 +208,8 @@ the pointer, the path `PySDL_New` and the C-side factory functions use.
 `Window`/`Renderer`/`Texture` lean on SDL's NULL-pointer tolerance (except
 where SDL dereferences unchecked: `SDL_FlushRenderer`, and SDL 3.2's
 `SDL_SetRenderTarget`, go through `pysdl_Renderer.c`'s `_valid()`); the rest go
-through a `_fmt()`/`_pal()`/`_js()`/`_gp()`/`_h()`/`_s()` guard that raises on an
-uninitialised instance. `Surface` is still constructed only via
+through a `_fmt()`/`_pal()`/`_js()`/`_gp()`/`_h()`/`_s()`/`_font()` guard that raises
+on an uninitialised instance. `Surface` is still constructed only via
 module/Window/Renderer functions.
 
 `PixelFormat` no longer wraps a single `SDL_PixelFormat *` struct (SDL3 split it
@@ -201,6 +217,16 @@ into an enum plus a cached, never-freed `SDL_PixelFormatDetails`); the wrapper
 holds `{ SDL_PixelFormat format; const SDL_PixelFormatDetails *details;
 PyObject *palette; }` where `palette` is a kept-alive `SDL3.Palette` from
 `SetPalette()`.
+
+`Font` keeps two extra fields: `data`, a `Py_buffer` pinning the font file's
+bytes (SDL_ttf reads the stream lazily for the font's whole life, so the buffer
+is released only after `TTF_CloseFont`, which closes the autoclose stream), and
+`session`. `TTF_CloseFont` after the last `TTF_Quit` touches freed FreeType
+state, so the `TTF_Quit` wrapper advances a module-level session counter when
+SDL_ttf actually shuts down (its init is counted); a font from an older session
+raises on use and is dropped without being closed. Text crosses as UTF-8 with
+an explicit length (NUL characters refused); `Measure` converts SDL's byte count
+back to characters. The GIL stays held: a `TTF_Font` is not thread-safe.
 
 `SDL3.Timer(interval, callback)` registers `SDL_AddTimer`; the callback runs on
 SDL's timer thread through the `PySDL_ThreadEnter` trampoline and returns the

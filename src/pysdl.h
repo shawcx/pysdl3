@@ -9,6 +9,9 @@
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 #include <SDL3/SDL_vulkan.h>
+#ifdef PYSDL_HAVE_TTF
+    #include <SDL3_ttf/SDL_ttf.h>  // optional: setup.py defines PYSDL_HAVE_TTF when found
+#endif
 
 #define  DOC_MOD  "Python wrapper for SDL."
 
@@ -151,6 +154,16 @@ typedef struct {
 } PySDL_Sensor;
 extern PyTypeObject PySDL_Sensor_Type;
 
+#ifdef PYSDL_HAVE_TTF
+typedef struct {
+    PyObject_HEAD
+    TTF_Font *font;
+    Py_buffer data;    // pins the font file's bytes (SDL_ttf reads them lazily); data.obj == NULL for a path
+    unsigned session;  // TTF init session the font was opened in (see pysdl_Font.c)
+} PySDL_Font;
+extern PyTypeObject PySDL_Font_Type;
+#endif
+
 typedef struct {
     PyObject_HEAD
     SDL_AudioStream *stream;
@@ -172,6 +185,10 @@ extern PyMethodDef pysdl_video_methods[];           // pysdl_Video.c   (display 
 extern PyMethodDef pysdl_audio_methods[];           // pysdl_Audio.c   (drivers / LoadWAV / mixing)
 extern PyMethodDef pysdl_rect_methods[];            // pysdl_Rect.c    (rect / point math)
 extern PyMethodDef pysdl_image_methods[];           // pysdl_Image.c   (SDL_image loaders / probes / animation)
+#ifdef PYSDL_HAVE_TTF
+extern PyMethodDef pysdl_ttf_methods[];             // pysdl_Font.c    (SDL_ttf init / versions / tags)
+int PySDL_TTF_Constants(PyObject *module);          // pysdl_Font.c    (TTF_STYLE_* / TTF_HINTING_* / ...)
+#endif
 
 // SDL_image texture loading shared with Renderer.LoadTexture (pysdl_Image.c):
 // `src` is a path or the file's bytes, `type` names a magic-less format

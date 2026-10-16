@@ -25,6 +25,9 @@ Needs Python 3.10+ and SDL 3.2+. Install SDL3, then build into a virtualenv::
     python3 -m venv .venv && . .venv/bin/activate
     pip install .
 
+SDL3_ttf is optional (``brew install sdl3_ttf`` / ``apt install libsdl3-ttf-dev``):
+when installed the build adds ``SDL3.Font``; ``PYSDL_TTF=0`` leaves it out.
+
 Or build a Debian package, ``python3-sdl3`` (the ``.deb`` lands in ``../``)::
 
     sudo apt build-dep .

@@ -253,6 +253,14 @@ PyMODINIT_FUNC PyInit_SDL3(void) {
         return NULL;
     }
 
+#ifdef PYSDL_HAVE_TTF
+    if(0 > _add_type(module, &PySDL_Font_Type, "Font", NULL)
+        || 0 > PyModule_AddFunctions(module, pysdl_ttf_methods)
+        || 0 > PySDL_TTF_Constants(module)) {
+        return NULL;
+    }
+#endif
+
     _constants(module);
 
     return module;

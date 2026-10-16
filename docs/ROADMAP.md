@@ -780,13 +780,74 @@ SDL3 differences and skips:
   already freed), and `Joystick` / `Gamepad` wrappers are not invalidated when
   the joystick subsystem stops.
 
+## Phase 14 - SDL3_ttf (optional)  — DONE
+
+Tests: `tests/test_ttf.py` (skips without SDL3_ttf or a system font; the
+Debian package build-depends on `fonts-dejavu-core` so it runs there);
+example: `example/text.py`. Port of pysdl2 `c510c83`.
+
+- **Optional dependency**: `setup.py`'s `OPTIONAL` table (pkg-config name,
+  library, define, opt-out env var) probes `pkg-config sdl3-ttf`, else the
+  header `SDL3_ttf/SDL_ttf.h`; when found it links `SDL3_ttf` and defines
+  `PYSDL_HAVE_TTF`. `PYSDL_TTF=0` builds without it; then `SDL3.Font` /
+  `TTF_*` are simply absent. CI's macOS job installs `sdl3_ttf`, and the Debian
+  package build-depends on `libsdl3-ttf-dev` (Debian 13 ships 3.2.2).
+- New `src/pysdl_Font.c`. Module (keeps the `TTF_` prefix like `IMG_`):
+  `TTF_Init`, `TTF_Quit`, `TTF_WasInit` (init is counted), `TTF_Version` ->
+  `(major, minor, micro)` (pysdl2's `TTF_Linked_Version` is an alias),
+  `TTF_GetFreeTypeVersion` (only known after `TTF_Init`; `(0, 0, 0)` before),
+  `TTF_GetHarfBuzzVersion` (`(0, 0, 0)` without HarfBuzz); SDL3:
+  `TTF_StringToTag` / `TTF_TagToString`, `TTF_GetGlyphScript(ch)` -> ISO 15924
+  tag str.
+- **`SDL3.Font(src, ptsize=12.0, index=0, *, hdpi=0, vdpi=0)`**: `src` is a
+  path, os.PathLike or the font file's bytes (pinned for the font's lifetime),
+  opened through `TTF_OpenFontWithProperties` (stream + autoclose, size, face,
+  DPI); point sizes are floats in SDL3. Methods drop `TTF_` and `Font`, pysdl2
+  names first with SDL3 aliases: `Close`, `Get/SetStyle`, `Get/SetOutline`,
+  `Get/SetHinting`, `Get/SetKerning`, `Height`, `Ascent`, `Descent`, `LineSkip`
+  (+ SDL3 `SetLineSkip`), `Faces` (`GetNumFaces`), `FaceIsFixedWidth`
+  (`IsFixedWidth`), `IsScalable`, `FaceFamilyName` / `FaceStyleName`
+  (`GetFamilyName` / `GetStyleName`), `GetWeight` (SDL3_ttf ≥ 3.2.2),
+  `GlyphIsProvided` (`HasGlyph`), `GlyphMetrics(ch)` -> `(minx, maxx, miny,
+  maxy, advance)`, `GetKerningSize(a, b)` (`GetGlyphKerning`), `Size(text)`
+  (`GetStringSize`), SDL3 `SizeWrapped(text, wrap_width)`, `Measure(text,
+  width)` -> `(extent, count)` (`MeasureString`; SDL counts UTF-8 bytes, the
+  binding returns characters), `GetSize` / `SetSize` / `SetSizeDPI` /
+  `GetDPI`, `Get/SetSDF`, `Get/SetWrappedAlign` (`Get/SetWrapAlignment`),
+  `Get/SetDirection`, `GetScript` / `SetScript(tag)` (pysdl2's
+  `SetScriptName`; a 4-char str or its int, 0 = automatic), `SetLanguage(bcp47
+  or None)`.
+- Rendering -> owned `Surface`: `RenderSolid(text, fg, wrap_length=None)`,
+  `RenderShaded(text, fg, bg, wrap_length=None)`, `RenderBlended(text, fg,
+  wrap_length=None)`, `RenderLCD(text, fg, bg, wrap_length=None)`; a
+  `wrap_length` selects the `*_Wrapped` variant (0 = newlines only).
+  `RenderGlyph{Solid,Shaded,Blended,LCD}(ch, fg[, bg])`; `ch` is a 1-char str or
+  an int codepoint (≤ U+10FFFF). All SDL3_ttf calls are the UTF-8 / 32-bit ones,
+  so the pysdl2 version guards are gone.
+- Text is a Python `str` passed as UTF-8 with its length; NUL characters raise
+  `ValueError` (SDL reads a length of 0 as "NUL-terminated").
+- **Lifetime**: a font used after the final `TTF_Quit` raises instead of
+  touching freed FreeType state, and is never passed to `TTF_CloseFont` (the
+  session counter in `pysdl_Font.c`). The GIL stays held: a `TTF_Font` is not
+  thread-safe. Valgrind (Debian, SDL3_ttf 3.2.2) is clean over bytes-backed
+  fonts, failed opens, every render / measure path and the post-`TTF_Quit`
+  paths.
+- Constants: `TTF_STYLE_*`, `TTF_HINTING_*` (incl. `LIGHT_SUBPIXEL`),
+  `TTF_HORIZONTAL_ALIGN_*` plus pysdl2's `TTF_WRAPPED_ALIGN_*` aliases,
+  `TTF_DIRECTION_*`, `TTF_FONT_WEIGHT_*` (≥ 3.2.2).
+- **Not wrapped yet** (SDL3_ttf-only, no pysdl2 counterpart): the text-engine
+  API (`TTF_Text`, surface / renderer / GPU text engines), fallback fonts
+  (`TTF_AddFallbackFont` - the fallback must outlive every font using it, which
+  needs ownership tracking), `TTF_CopyFont`, `TTF_GetGlyphImage(ForIndex)`, the
+  outline line-cap / join properties.
+
 ## Explicitly out of scope
 
 Threads / mutexes / semaphores / condition vars / atomics (use Python's),
 `SDL_Log*`, assertions, `SDL_main` / main callbacks, platform-specific APIs
-(Android / iOS / WinRT), `GetWindowWMInfo`, stdinc shims. Satellite libraries
-(`SDL3_ttf`, `SDL3_mixer`, `SDL3_net`) are a separate effort - each its own
-linked lib + `pysdl_ttf.c` etc., or separate packages.
+(Android / iOS / WinRT), `GetWindowWMInfo`, stdinc shims. Further satellite
+libraries (`SDL3_net`, ...) are a separate effort; if added, follow the Phase 14
+pattern (an `OPTIONAL` row in `setup.py`, one `#ifdef PYSDL_HAVE_<LIB>` file).
 
 Removed by SDL3 with no in-style replacement (dropped from the binding in the
 SDL3 port): gesture recognition (`MULTIGESTURE` / `DOLLAR*`, `RecordGesture`,

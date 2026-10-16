@@ -11,6 +11,8 @@ Build-Depends: debhelper-compat (= 13),
                pkgconf,
                libsdl3-dev,
                libsdl3-image-dev,
+               libsdl3-ttf-dev,
+               fonts-dejavu-core <!nocheck>,
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
 Homepage: https://github.com/shawcx/pysdl3
@@ -22,9 +24,9 @@ Architecture: any
 Depends: ${python3:Depends},
          ${shlibs:Depends},
          ${misc:Depends},
-Description: Python 3 bindings for SDL3 and SDL3_image
- A hand-written CPython extension that exposes SDL3 (with SDL3_image) as the
- SDL3 module: windows, rendering, surfaces, textures, events, input, audio,
- gamepads, timers and more. Functions and constants drop the SDL_ prefix
- (SDL_RenderPresent becomes Renderer.Present, SDL_EVENT_QUIT becomes
- SDL3.EVENT_QUIT).
+Description: Python 3 bindings for SDL3, SDL3_image and SDL3_ttf
+ A hand-written CPython extension that exposes SDL3 (with SDL3_image and
+ SDL3_ttf) as the SDL3 module: windows, rendering, surfaces, textures, text,
+ events, input, audio, gamepads, timers and more. Functions and constants drop
+ the SDL_ prefix (SDL_RenderPresent becomes Renderer.Present, SDL_EVENT_QUIT
+ becomes SDL3.EVENT_QUIT).
