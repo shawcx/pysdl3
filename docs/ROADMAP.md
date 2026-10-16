@@ -489,6 +489,149 @@ SDL3 differences, fixes and skips:
   against SDL 3.4's `SDL_CreateAnimatedCursor`); `IMG_LoadGPUTexture*` (no GPU
   binding); metadata properties (`IMG_PROP_METADATA_*`).
 
+## Phase 12 - Render, surface & window completeness  — DONE
+
+Ported from pysdl2's phase 12, together with the renderer -> texture
+invalidation of its phase 15 (the cursor part of phase 15 is still to come).
+Tests: phase-12 sections of `tests/test_renderer.py`, `test_texture.py`,
+`test_surface.py`, `test_video.py` (the `Quit` cases run in a subprocess; the
+parent-window case needs a real video driver and skips under dummy); example:
+`example/logical.py` (`--frames N` exits after N frames, so it runs headless).
+
+- **Renderer**: `RenderWindowToLogical((x, y))` / `RenderCoordinatesFromWindow`
+  and `RenderLogicalToWindow` / `RenderCoordinatesToWindow` (floats both ways
+  in SDL3), `RenderGetWindow` / `GetRenderWindow` (a borrowed Window, `None` for
+  a software renderer on a Surface), `RenderGetMetalLayer` /
+  `GetRenderMetalLayer` and `RenderGetMetalCommandEncoder` /
+  `GetRenderMetalCommandEncoder` (pointer int, `None` off Metal), `GetVSync`,
+  `RenderSetVSync` (pysdl2's name for the existing `SetVSync`),
+  `GetRenderLogicalPresentationRect` (where the logical canvas lands, floats),
+  and `Set/GetRenderLogicalPresentation` as SDL3-name aliases of
+  `RenderSet/GetLogicalSize`.
+- **`RenderGeometryRaw(texture, xy, color, uv=None, indices=None, *,
+  num_vertices=None, xy_stride=8, color_stride=16, uv_stride=8, index_size=4)`**:
+  triangles straight from any buffer (bytes, `array`, numpy, memoryview slices
+  for interleaved records). `xy` / `uv` are float32 pairs, `color` is float32
+  RGBA (`SDL_FColor`; `color_stride=0` gives every vertex one colour), indices
+  1/2/4-byte unsigned. `num_vertices` defaults to `len(xy) // xy_stride`.
+  Buffer sizes, non-negative strides and float / index alignment are checked
+  before SDL reads anything; SDL range-checks the index values itself.
+- Module: `CreateWindowAndRenderer(title, size, flags=0)` -> `(Window,
+  Renderer)`, both owned.
+- **Texture**: `LockToSurface(rect=None)` -> a Surface over the locked region
+  (the rect clipped to the texture, as SDL does); `Unlock` (and the texture
+  going away) swaps it for an empty 0x0 surface so it never dangles.
+  `UpdateNV(yplane, ypitch, uvplane, uvpitch, rect=None)`, with the planes and
+  pitches checked against the clipped update area like `UpdateYUV`.
+- **Surface**: `HasColorKey`, `HasRLE`, `SoftStretchLinear(src, srcrect=None,
+  dstrect=None)` and `Stretch(..., scale_mode=SCALEMODE_NEAREST)` (both
+  `SDL_StretchSurface`). The `w` / `h` / `pitch` / `format` / `pixels` / `bpp`
+  getters (and the `pixels` setter) raise on an uninitialised Surface instead
+  of dereferencing NULL. (`SaveBMP(path=None)` -> bytes came with phase 11.)
+- **Pixels** (module): `ConvertPixels(size, src_format, src, dst_format,
+  src_pitch=0, dst_pitch=0)` and `PremultiplyAlpha(..., linear=False)` ->
+  bytes. Pitch 0 = tight rows; YUV sources and destinations are sized the way
+  SDL lays them out (chroma planes after the luma rows; shared helper
+  `PySDL_PixelsSize`), pitches shorter than a row are refused, and `src` must
+  cover the whole image before SDL reads it.
+- **Window**: `GetRenderer()` (the owning Renderer object itself, or `None`),
+  `GetWindowICCProfile()` -> bytes or `None` (SDL's copy freed),
+  `HasWindowSurface` / `WindowHasSurface`, `DestroyWindowSurface` (empties the
+  `GetWindowSurface()` Surface first; refused while a Renderer draws to the
+  window), `SetWindowShape(surface | None)`. `GetWindowSizeInPixels` was
+  already there.
+- Constants: none needed (`LOGICAL_PRESENTATION_*`, `RENDERER_VSYNC_*`,
+  `SCALEMODE_*`, `WINDOW_TRANSPARENT` were already generated).
+
+**Renderer / texture lifetimes** (pysdl2 phase 15's renderer part, reworked for
+SDL3, where more frees renderers behind the binding's back):
+
+- One wrapper per SDL renderer. `Window.GetRenderer()` returns the owning
+  `Renderer` rather than a borrowed wrapper, so `Renderer` needs no
+  `shouldFree` (pysdl2 added one for `GetRenderer`) and identity holds
+  (`window.GetRenderer() is renderer`). SDL's own renderer behind an
+  accelerated window surface is not exposed.
+- Texture wrappers record their renderer (`PySDL_TextureTrack` at the three
+  creation sites). Whenever SDL frees a renderer's textures the wrappers are
+  invalidated first (methods raise, a `LockToSurface` Surface is emptied):
+  when the Renderer is dropped; when its Window is — `SDL_DestroyWindow`
+  destroys the window's renderer but keeps a husk until `SDL_DestroyRenderer`,
+  and `SDL_FlushRenderer` doesn't check for that, so the Window destroys its
+  Renderer first and nulls it (methods raise "Invalid renderer"); and on video
+  shutdown (`Quit`, a `QuitSubSystem` that stops video), whose `SDL_QuitRender`
+  frees every renderer, software ones included. `SetRenderTarget` /
+  `RenderGeometry` / `RenderGeometryRaw` / `Copy*` raise on an invalidated
+  texture instead of reading it as "no texture".
+- `SDL_DestroyWindow` also destroys the window's **child windows**
+  (`SetWindowModalFor` parents them); the Window's dealloc now nulls their
+  wrappers too and invalidates their surfaces, renderers and textures (it only
+  handled the window itself).
+- `CreateSoftwareRenderer(surface)` keeps the Surface alive (SDL holds the
+  pointer: pysdl2's own tests drew into a freed temporary) and refuses
+  SDL-owned surfaces (a window surface, a `LockToSurface` surface) that SDL
+  could free under it. A software renderer on a window draws into, and on
+  destruction frees, the window surface: the `GetWindowSurface()` Surface is
+  emptied first.
+- `QuitSubSystem` only invalidates when video was running before the call: a
+  software renderer on a Surface needs no video and survives other subsystems
+  stopping.
+
+Bug fixes (regression tests):
+
+- `Texture.Lock(rect)`: SDL doesn't clip the rect, so an off-texture rect gave
+  a *writable* view outside the pixels, and the view (`pitch * h` bytes from
+  the rect's first pixel) ran past the buffer for any rect touching the bottom
+  edge. The rect must now lie within the texture (`ValueError`), and the view
+  ends with the last row's `w` pixels: **behaviour change**, its length is
+  `pitch * (h - 1) + w * bytes_per_pixel` (was `pitch * h`).
+- `Texture.Update` handed SDL the buffer unchecked; it must now cover the
+  clipped update (YUV chroma planes included).
+- `Texture.UpdateYUV` with a rect off the texture in one direction only
+  crashed (SDL copies rows of negative width when the clip is empty that way);
+  a rect that misses the texture is now a no-op, as in `SDL_UpdateTexture`.
+- `Surface.SoftStretch` with a 2-item rect (`w = h = -1`) crashed, and a
+  zero-width source rect read past the row: `SDL_StretchSurface` trusts the
+  sizes. Negative sizes now raise, zero sizes copy nothing, and a YUV
+  destination (whose dstrect SDL writes unclipped) is stretched to whole.
+- `Renderer.RenderFlush()` / `SetRenderTarget()` on an uninitialised or
+  invalidated Renderer crashed (`SDL_FlushRenderer`, and SDL 3.2's
+  `SDL_SetRenderTarget`, dereference it unchecked); they raise now.
+
+SDL3 differences and skips:
+
+- `RenderGeometryRaw` colours are `SDL_FColor` floats (pysdl2: RGBA bytes,
+  default stride 4); window <-> render coordinates are floats both ways
+  (pysdl2's `RenderLogicalToWindow` returned ints); `CreateWindowAndRenderer`
+  takes a title.
+- Shaped windows: SDL3 dropped `CreateShapedWindow` / `IsShapedWindow` /
+  `GetShapedWindowMode` / `SHAPEMODE_*` for a per-window alpha shape on
+  `WINDOW_TRANSPARENT` windows (`SetWindowShape`). Removing a shape (`None`)
+  only works with SDL 3.4.4+ (earlier SDL rejects NULL); the binding checks the
+  linked version and says so.
+- Gone in SDL3, skipped: `VideoInit` / `VideoQuit` (use `InitSubSystem` /
+  `QuitSubSystem(INIT_VIDEO)`), `CalculateGammaRamp` and
+  `Get/SetWindowBrightness` (gamma ramps were removed), `Set/GetYUVConversionMode`
+  / `GetYUVConversionModeForResolution` and `YUV_CONVERSION_*` (replaced by
+  colorspaces).
+- `CreateWindowFrom` skipped: SDL3 replaced it with
+  `SDL_CreateWindowWithProperties` plus a native-handle property that differs
+  per video driver (Cocoa `NSWindow*`, Win32 `HWND`, X11 `Window`, Wayland
+  `wl_surface*`), so it isn't portable, and no driver the tests run under can
+  exercise it. A generic `CreateWindowWithProperties` is the right shape later.
+- `SDL_ConvertEventToRenderCoordinates` not wrapped: events are tuples here;
+  map their coordinates with `RenderWindowToLogical`.
+- `ConvertPixels` to / from `PIXELFORMAT_P010` needs a colorspace conversion
+  SDL doesn't do by default ("Unsupported YUV colorspace"); its sizes are
+  validated all the same.
+- Still skipped on purpose, as in pysdl2: `SDL_BlitSurfaceUnchecked*` (the old
+  `LowerBlit`: unclipped, writes out of bounds on a bad rect; `Blit` /
+  `BlitScaled` cover it), and the window / texture property bags that replaced
+  `SetWindowData` / texture user data (keep a dict keyed by the wrapper or the
+  window id).
+- Known remaining: `Texture.Lock()`'s memoryview is a raw view of SDL's
+  memory and still dangles if kept past `Unlock()` or the texture's renderer
+  (as in pysdl2).
+
 ## Explicitly out of scope
 
 Threads / mutexes / semaphores / condition vars / atomics (use Python's),
@@ -503,7 +646,9 @@ dollar templates), window gamma ramp / brightness, `Texture.GL_Bind`,
 `GetDisplayDPI`, `IMG_Init` / `IMG_Quit`, `GetRendererInfo` /
 `GetRenderDriverInfo` (now name + properties), `RenderTargetSupported`,
 `SDL_QueryTexture` (now `Texture.Query` over size + properties),
-`RenderSetIntegerScale`, `AudioInit` / `AudioQuit`. The new SDL3 subsystems
+`RenderSetIntegerScale`, `AudioInit` / `AudioQuit`, `VideoInit` / `VideoQuit`,
+the YUV conversion mode, `CreateShapedWindow` and the shape modes,
+`CreateWindowFrom`. The new SDL3 subsystems
 (GPU, camera, pen, async I/O, dialogs, tray) are future work.
 
 ## Per-phase checklist

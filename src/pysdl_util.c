@@ -192,6 +192,102 @@ PyObject * PySDL_WrapWindow(SDL_Window *window) {
     return (PyObject *)wrapper;
 }
 
+int PySDL_SurfaceArg(PyObject *obj, SDL_Surface **out) {
+    if(!PyObject_TypeCheck(obj, &PySDL_Surface_Type)) {
+        PyErr_Format(PyExc_TypeError, "expected an SDL3.Surface, not %.200s", Py_TYPE(obj)->tp_name);
+        return 0;
+    }
+    if(NULL == ((PySDL_Surface *)obj)->surface) {
+        PyErr_SetString(pysdl_Error, "Surface is not initialised");
+        return 0;
+    }
+    *out = ((PySDL_Surface *)obj)->surface;
+    return 1;
+}
+
+//=========================================================
+// pixel buffer geometry
+//=========================================================
+
+Py_ssize_t PySDL_PixelsSize(SDL_PixelFormat format, int w, int h, int *pitch) {
+    // Minimum row length, and the bytes of chroma after the h rows (laid out
+    // as SDL does: GetYUVPlanes / SDL_SW_UpdateYUVTexture in SDL's sources).
+    Py_ssize_t row, chroma_rows = (h + 1) / 2, chroma_pitch = 0;
+    int even = 0;
+
+    switch(format) {
+    case SDL_PIXELFORMAT_YV12:  // Y, then 2x2-subsampled V and U planes
+    case SDL_PIXELFORMAT_IYUV:
+    case SDL_PIXELFORMAT_NV12:  // Y, then one interleaved 2x2-subsampled UV plane
+    case SDL_PIXELFORMAT_NV21:
+        row = w;
+        break;
+    case SDL_PIXELFORMAT_P010:  // NV12 with 16-bit samples
+        row = 2 * (Py_ssize_t)w;
+        even = 1;
+        break;
+    case SDL_PIXELFORMAT_YUY2:  // packed 4:2:2, 4 bytes per pixel pair
+    case SDL_PIXELFORMAT_UYVY:
+    case SDL_PIXELFORMAT_YVYU:
+        row = 4 * (((Py_ssize_t)w + 1) / 2);
+        chroma_rows = 0;
+        break;
+    default:
+        if(SDL_ISPIXELFORMAT_FOURCC(format) || 0 == SDL_BYTESPERPIXEL(format)) {
+            PyErr_Format(PyExc_ValueError, "no byte layout for pixel format %s",
+                SDL_GetPixelFormatName(format));
+            return -1;
+        }
+        row = (Py_ssize_t)w * SDL_BYTESPERPIXEL(format);
+        chroma_rows = 0;
+    }
+
+    if(0 == *pitch) {
+        if(row > INT_MAX) {
+            PyErr_SetString(PyExc_OverflowError, "image is too wide");
+            return -1;
+        }
+        *pitch = (int)row;
+    } else if(*pitch < row) {
+        PyErr_Format(PyExc_ValueError, "pitch %d is too small for a %d-pixel row (%zd bytes)",
+            *pitch, w, row);
+        return -1;
+    } else if(even && *pitch % 2) {
+        PyErr_Format(PyExc_ValueError, "pitch %d must be even for 16-bit samples", *pitch);
+        return -1;
+    }
+
+    switch(format) {
+    case SDL_PIXELFORMAT_YV12:
+    case SDL_PIXELFORMAT_IYUV:
+    case SDL_PIXELFORMAT_NV12:
+    case SDL_PIXELFORMAT_NV21:
+        chroma_pitch = 2 * (((Py_ssize_t)*pitch + 1) / 2);  // two half planes, or one interleaved
+        break;
+    case SDL_PIXELFORMAT_P010:
+        chroma_pitch = SDL_max(*pitch, 4 * (((Py_ssize_t)w + 1) / 2));
+        break;
+    default:
+        break;
+    }
+
+    // pitch * h + chroma_pitch * chroma_rows, without overflowing
+    Py_ssize_t luma, chroma;
+    if(h > 0 && *pitch > PY_SSIZE_T_MAX / h) {
+        goto overflow;
+    }
+    luma = (Py_ssize_t)*pitch * h;
+    if(chroma_rows > 0 && chroma_pitch > (PY_SSIZE_T_MAX - luma) / chroma_rows) {
+        goto overflow;
+    }
+    chroma = chroma_pitch * chroma_rows;
+    return luma + chroma;
+
+overflow:
+    PyErr_SetString(PyExc_OverflowError, "image is too large");
+    return -1;
+}
+
 //=========================================================
 // file sources / save destinations  (SDL_IOStream)
 //=========================================================

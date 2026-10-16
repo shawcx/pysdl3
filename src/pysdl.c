@@ -26,6 +26,8 @@ static PyObject * PySDL_CreateRGBSurfaceWithFormatFrom (PyObject*, PyObject*, Py
 static PyObject * PySDL_GetPixelFormatName     (PyObject*, PyObject*);
 static PyObject * PySDL_PixelFormatEnumToMasks (PyObject*, PyObject*);
 static PyObject * PySDL_MasksToPixelFormatEnum (PyObject*, PyObject*);
+static PyObject * PySDL_ConvertPixels          (PyObject*, PyObject*, PyObject*);
+static PyObject * PySDL_PremultiplyAlpha       (PyObject*, PyObject*, PyObject*);
 
 static PyObject * PySDL_CreateSoftwareRenderer (PyObject*, PyObject*);
 static PyObject * PySDL_ComposeCustomBlendMode (PyObject*, PyObject*);
@@ -109,6 +111,8 @@ static PyMethodDef pysdl_PyMethodDefs[] = {
     { "GetPixelFormatName",     PySDL_GetPixelFormatName,     METH_O       },
     { "PixelFormatEnumToMasks", PySDL_PixelFormatEnumToMasks, METH_O       },
     { "MasksToPixelFormatEnum", PySDL_MasksToPixelFormatEnum, METH_VARARGS },
+    { "ConvertPixels",          (PyCFunction)PySDL_ConvertPixels,    METH_VARARGS | METH_KEYWORDS },
+    { "PremultiplyAlpha",       (PyCFunction)PySDL_PremultiplyAlpha, METH_VARARGS | METH_KEYWORDS },
 
     { "CreateSoftwareRenderer", PySDL_CreateSoftwareRenderer, METH_O       },
     { "ComposeCustomBlendMode", PySDL_ComposeCustomBlendMode, METH_VARARGS },
@@ -301,14 +305,19 @@ static PyObject * PySDL_QuitSubSystem(PyObject *self, PyObject *arg) {
     if((unsigned long)-1 == flags && PyErr_Occurred()) {
         return NULL;
     }
+    // Subsystems are refcounted: only if video was running and really stopped
+    // (a software renderer on a Surface lives without video).
+    bool video = NULL != SDL_GetCurrentVideoDriver();
     SDL_QuitSubSystem((SDL_InitFlags)flags);
-    PySDL_CheckVideoGone();  // subsystems are refcounted: only if video really stopped
+    if(video) {
+        PySDL_CheckVideoGone();
+    }
     Py_RETURN_NONE;
 }
 
 static PyObject * PySDL_Quit(PyObject *self, PyObject *ign) {
     SDL_Quit();
-    PySDL_InvalidateWindows();  // SDL_Quit destroyed every window
+    PySDL_InvalidateWindows();  // SDL_Quit destroyed every window and renderer
     Py_RETURN_NONE;
 }
 
@@ -497,13 +506,83 @@ static PyObject * PySDL_MasksToPixelFormatEnum(PyObject *self, PyObject *args) {
     return PyLong_FromUnsignedLong(SDL_GetPixelFormatForMasks(bpp, rmask, gmask, bmask, amask));
 }
 
+// ConvertPixels(size, src_format, src, dst_format, src_pitch=0, dst_pitch=0)
+// and PremultiplyAlpha(..., linear=False) -> the converted pixels as bytes.
+// A pitch of 0 is tight rows; YUV layouts follow SDL's (chroma planes after
+// the luma rows). `src` must hold the whole image before SDL reads it.
+static PyObject * _convert(PyObject *args, PyObject *kwds, int premultiply) {
+    int w, h, src_pitch = 0, dst_pitch = 0, linear = 0;
+    unsigned int src_format, dst_format;
+    Py_buffer src;
+    static char *kwlist[] = {"size", "src_format", "src", "dst_format", "src_pitch", "dst_pitch", NULL};
+    static char *kwlist_linear[] = {"size", "src_format", "src", "dst_format", "src_pitch", "dst_pitch", "linear", NULL};
+    if(premultiply ? !PyArg_ParseTupleAndKeywords(args, kwds, "(ii)Iy*I|iip", kwlist_linear,
+                         &w, &h, &src_format, &src, &dst_format, &src_pitch, &dst_pitch, &linear)
+                   : !PyArg_ParseTupleAndKeywords(args, kwds, "(ii)Iy*I|ii", kwlist,
+                         &w, &h, &src_format, &src, &dst_format, &src_pitch, &dst_pitch)) {
+        return NULL;
+    }
+
+    PyObject *dst = NULL;
+    if(w <= 0 || h <= 0 || src_pitch < 0 || dst_pitch < 0) {
+        PyErr_SetString(PyExc_ValueError, "size must be positive and pitches non-negative");
+        goto done;
+    }
+    Py_ssize_t need = PySDL_PixelsSize((SDL_PixelFormat)src_format, w, h, &src_pitch);
+    if(0 > need) {
+        goto done;
+    }
+    if(src.len < need) {
+        PyErr_Format(PyExc_ValueError, "src holds %zd bytes, needs %zd", src.len, need);
+        goto done;
+    }
+    Py_ssize_t size = PySDL_PixelsSize((SDL_PixelFormat)dst_format, w, h, &dst_pitch);
+    if(0 > size) {
+        goto done;
+    }
+    dst = PyBytes_FromStringAndSize(NULL, size);
+    if(NULL == dst) {
+        goto done;
+    }
+
+    bool ok = premultiply
+        ? SDL_PremultiplyAlpha(w, h, (SDL_PixelFormat)src_format, src.buf, src_pitch,
+              (SDL_PixelFormat)dst_format, PyBytes_AS_STRING(dst), dst_pitch, linear ? true : false)
+        : SDL_ConvertPixels(w, h, (SDL_PixelFormat)src_format, src.buf, src_pitch,
+              (SDL_PixelFormat)dst_format, PyBytes_AS_STRING(dst), dst_pitch);
+    if(!ok) {
+        Py_CLEAR(dst);
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+    }
+
+done:
+    PyBuffer_Release(&src);
+    return dst;
+}
+
+static PyObject * PySDL_ConvertPixels(PyObject *self, PyObject *args, PyObject *kwds) {
+    return _convert(args, kwds, 0);
+}
+
+static PyObject * PySDL_PremultiplyAlpha(PyObject *self, PyObject *args, PyObject *kwds) {
+    return _convert(args, kwds, 1);
+}
+
 //=========================================================
 // renderers / blend modes
 //=========================================================
 
+// CreateSoftwareRenderer(surface): a renderer drawing into `surface`, which
+// it keeps alive (SDL holds the pointer). Only a Surface the binding owns: SDL
+// frees a window surface or a LockToSurface surface under the renderer (draw
+// to a window with Window.CreateRenderer("software") instead).
 static PyObject * PySDL_CreateSoftwareRenderer(PyObject *self, PyObject *arg) {
-    if(!PyObject_TypeCheck(arg, &PySDL_Surface_Type)) {
-        PyErr_SetString(PyExc_TypeError, "expected an SDL3.Surface");
+    SDL_Surface *surface;
+    if(!PySDL_SurfaceArg(arg, &surface)) {
+        return NULL;
+    }
+    if(!((PySDL_Surface *)arg)->shouldFree) {
+        PyErr_SetString(pysdl_Error, "SDL owns this Surface (a window or locked-texture surface)");
         return NULL;
     }
 
@@ -512,12 +591,13 @@ static PyObject * PySDL_CreateSoftwareRenderer(PyObject *self, PyObject *arg) {
         return NULL;
     }
 
-    pysdl_Renderer->renderer = SDL_CreateSoftwareRenderer(((PySDL_Surface *)arg)->surface);
+    pysdl_Renderer->renderer = SDL_CreateSoftwareRenderer(surface);
     if(NULL == pysdl_Renderer->renderer) {
         Py_DECREF(pysdl_Renderer);
         PyErr_SetString(pysdl_Error, SDL_GetError());
         return NULL;
     }
+    pysdl_Renderer->surface = Py_NewRef(arg);
 
     return (PyObject *)pysdl_Renderer;
 }

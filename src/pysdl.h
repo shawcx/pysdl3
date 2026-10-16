@@ -32,8 +32,9 @@ extern PyTypeObject PySDL_Window_Type;
 
 typedef struct {
     PyObject_HEAD
-    SDL_Renderer *renderer;
-    PyObject *target;  // Texture currently set as render target, or NULL
+    SDL_Renderer *renderer;  // always owned; NULL once SDL destroyed it (see PySDL_InvalidateRenderers)
+    PyObject *target;        // Texture currently set as render target, or NULL
+    PyObject *surface;       // Surface a software renderer draws to (kept alive), or NULL
 } PySDL_Renderer;
 extern PyTypeObject PySDL_Renderer_Type;
 
@@ -49,6 +50,8 @@ extern PyTypeObject PySDL_Surface_Type;
 typedef struct {
     PyObject_HEAD
     SDL_Texture *texture;
+    PyObject *locked;        // Surface from LockToSurface (emptied on Unlock), or NULL
+    SDL_Renderer *renderer;  // the renderer that owns `texture` (see PySDL_TextureTrack)
 } PySDL_Texture;
 extern PyTypeObject PySDL_Texture_Type;
 
@@ -177,6 +180,11 @@ PyObject * PointToPy(const SDL_Point *point);   // -> (x, y)
 // Wrap a window SDL still owns as a non-freeing SDL3.Window, or None for NULL.
 PyObject * PySDL_WrapWindow(SDL_Window *window);
 
+// The surface of a Surface argument: 0 with an exception set if `obj` is not
+// an SDL3.Surface or wraps none (an uninitialised SDL3.Surface()), where SDL
+// would read NULL as "no surface".
+int PySDL_SurfaceArg(PyObject *obj, SDL_Surface **out);
+
 // File sources: anything that reads a file takes a path (str / os.PathLike)
 // or the file's contents (any bytes-like).
 //
@@ -219,7 +227,26 @@ void PySDL_SurfaceDetach(PySDL_Surface *surface);
 // surface on the next SDL_GetWindowSurface after a resize and with the window;
 // it frees every window when video shuts down.
 void PySDL_WindowSurfaceForget(PySDL_Surface *surface);  // from Surface tp_dealloc
-void PySDL_InvalidateWindows(void);   // video is gone: null every Window, empty every window surface
+void PySDL_WindowSurfaceDrop(SDL_Window *window);        // SDL is about to free `window`'s surface
+void PySDL_InvalidateWindows(void);   // video is gone: null every Window / Renderer / Texture, empty every window surface
 void PySDL_CheckVideoGone(void);      // PySDL_InvalidateWindows() if video is no longer running
+
+// Renderer / texture tracking (pysdl_Renderer.c). SDL_DestroyRenderer frees
+// every texture of that renderer, SDL_DestroyWindow destroys the window's
+// renderer, and video shutdown (SDL_QuitRender) frees every renderer; each
+// Texture wrapper records its renderer so those paths can invalidate it.
+int  PySDL_TextureTrack(PySDL_Texture *texture, SDL_Renderer *renderer);  // after creating ->texture
+void PySDL_TextureForget(PySDL_Texture *texture);                         // from Texture tp_dealloc
+void PySDL_TextureInvalidate(PySDL_Texture *texture);                     // pysdl_Texture.c
+void PySDL_RendererWindowGone(SDL_Window *window);  // before SDL_DestroyWindow: destroy its renderer first
+PyObject * PySDL_RendererFor(SDL_Renderer *renderer);  // the owning Renderer (new ref), or None
+int  PySDL_RendererOwned(SDL_Renderer *renderer);      // 1 if a Renderer wrapper owns `renderer`
+void PySDL_InvalidateRenderers(void);                  // video is gone: null every Renderer and Texture
+
+// Bytes SDL reads or writes for a w x h image of `format` with `*pitch` bytes
+// per row (0 = tightly packed: filled in), including the chroma planes of a
+// planar YUV format. -1 with a ValueError for a pitch shorter than a row, a
+// format without a byte layout, or an overflow.
+Py_ssize_t PySDL_PixelsSize(SDL_PixelFormat format, int w, int h, int *pitch);
 
 #endif // __PYSDL_H__

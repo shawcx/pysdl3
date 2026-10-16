@@ -45,6 +45,15 @@ static PyObject * PySDL_Renderer_ReadPixels           (PySDL_Renderer*, PyObject
 static PyObject * PySDL_Renderer_GetRendererInfo       (PySDL_Renderer*, PyObject*);
 static PyObject * PySDL_Renderer_GetRendererOutputSize (PySDL_Renderer*, PyObject*);
 
+static PyObject * PySDL_Renderer_GetVSync              (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_GetLogicalPresentationRect (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_WindowToLogical       (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_LogicalToWindow       (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_GetWindow             (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_GetMetalLayer         (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_GetMetalCommandEncoder (PySDL_Renderer*, PyObject*);
+static PyObject * PySDL_Renderer_RenderGeometryRaw     (PySDL_Renderer*, PyObject*, PyObject*);
+
 static PyMethodDef PySDL_Renderer_methods[] = {
     { "CreateTextureFromSurface", (PyCFunction)PySDL_Renderer_CreateTextureFromSurface, METH_O       },
     { "LoadTexture",              (PyCFunction)PySDL_Renderer_LoadTexture,              METH_VARARGS | METH_KEYWORDS },
@@ -53,6 +62,8 @@ static PyMethodDef PySDL_Renderer_methods[] = {
     { "Present",                  (PyCFunction)PySDL_Renderer_Present,                  METH_NOARGS  },
     { "RenderFlush",              (PyCFunction)PySDL_Renderer_Flush,                    METH_NOARGS  },
     { "SetVSync",                 (PyCFunction)PySDL_Renderer_SetVSync,                 METH_O       },
+    { "RenderSetVSync",           (PyCFunction)PySDL_Renderer_SetVSync,                 METH_O       },
+    { "GetVSync",                 (PyCFunction)PySDL_Renderer_GetVSync,                 METH_NOARGS  },
     // In SDL3 SDL_RenderTexture takes float rects; these four names are kept as
     // aliases for the two underlying calls.
     { "Copy",                     (PyCFunction)PySDL_Renderer_Copy,                     METH_VARARGS | METH_KEYWORDS },
@@ -71,6 +82,7 @@ static PyMethodDef PySDL_Renderer_methods[] = {
     { "FillRect",                 (PyCFunction)PySDL_Renderer_FillRect,                 METH_O       },
     { "FillRects",                (PyCFunction)PySDL_Renderer_FillRects,                METH_O       },
     { "RenderGeometry",           (PyCFunction)PySDL_Renderer_RenderGeometry,           METH_VARARGS | METH_KEYWORDS },
+    { "RenderGeometryRaw",        (PyCFunction)PySDL_Renderer_RenderGeometryRaw,        METH_VARARGS | METH_KEYWORDS },
 
     { "SetRenderDrawColor",       (PyCFunction)PySDL_Renderer_SetRenderDrawColor,       METH_VARARGS },
     { "GetRenderDrawColor",       (PyCFunction)PySDL_Renderer_GetRenderDrawColor,       METH_NOARGS  },
@@ -86,6 +98,13 @@ static PyMethodDef PySDL_Renderer_methods[] = {
     { "RenderGetScale",           (PyCFunction)PySDL_Renderer_GetScale,                 METH_NOARGS  },
     { "RenderSetLogicalSize",     (PyCFunction)PySDL_Renderer_SetLogicalSize,           METH_VARARGS },
     { "RenderGetLogicalSize",     (PyCFunction)PySDL_Renderer_GetLogicalSize,           METH_NOARGS  },
+    { "SetRenderLogicalPresentation", (PyCFunction)PySDL_Renderer_SetLogicalSize,       METH_VARARGS },
+    { "GetRenderLogicalPresentation", (PyCFunction)PySDL_Renderer_GetLogicalSize,       METH_NOARGS  },
+    { "GetRenderLogicalPresentationRect", (PyCFunction)PySDL_Renderer_GetLogicalPresentationRect, METH_NOARGS },
+    { "RenderWindowToLogical",    (PyCFunction)PySDL_Renderer_WindowToLogical,          METH_O       },
+    { "RenderCoordinatesFromWindow", (PyCFunction)PySDL_Renderer_WindowToLogical,       METH_O       },
+    { "RenderLogicalToWindow",    (PyCFunction)PySDL_Renderer_LogicalToWindow,          METH_O       },
+    { "RenderCoordinatesToWindow", (PyCFunction)PySDL_Renderer_LogicalToWindow,         METH_O       },
 
     { "SetRenderTarget",          (PyCFunction)PySDL_Renderer_SetRenderTarget,          METH_O       },
     { "GetRenderTarget",          (PyCFunction)PySDL_Renderer_GetRenderTarget,          METH_NOARGS  },
@@ -93,6 +112,12 @@ static PyMethodDef PySDL_Renderer_methods[] = {
 
     { "GetRendererInfo",          (PyCFunction)PySDL_Renderer_GetRendererInfo,          METH_NOARGS  },
     { "GetRendererOutputSize",    (PyCFunction)PySDL_Renderer_GetRendererOutputSize,    METH_NOARGS  },
+    { "RenderGetWindow",          (PyCFunction)PySDL_Renderer_GetWindow,                METH_NOARGS  },
+    { "GetRenderWindow",          (PyCFunction)PySDL_Renderer_GetWindow,                METH_NOARGS  },
+    { "RenderGetMetalLayer",      (PyCFunction)PySDL_Renderer_GetMetalLayer,            METH_NOARGS  },
+    { "GetRenderMetalLayer",      (PyCFunction)PySDL_Renderer_GetMetalLayer,            METH_NOARGS  },
+    { "RenderGetMetalCommandEncoder", (PyCFunction)PySDL_Renderer_GetMetalCommandEncoder, METH_NOARGS },
+    { "GetRenderMetalCommandEncoder", (PyCFunction)PySDL_Renderer_GetMetalCommandEncoder, METH_NOARGS },
 
     { NULL }
 };
@@ -109,6 +134,116 @@ PyTypeObject PySDL_Renderer_Type = {
     .tp_new       = PyType_GenericNew,
 };
 
+//=========================================================
+// renderer / texture tracking
+//=========================================================
+
+// Every live Renderer wrapper and every Texture wrapper holding a texture, as
+// borrowed pointers. Each SDL renderer has exactly one wrapper, which owns it
+// (Window.GetRenderer() hands back that same object), so nothing borrows a
+// renderer. What SDL frees behind our back:
+//   - SDL_DestroyRenderer frees all of the renderer's textures (and a software
+//     renderer on a window frees the window surface);
+//   - SDL_DestroyWindow destroys the window's renderer (keeping a husk until
+//     SDL_DestroyRenderer; not every SDL call checks for that), so the Window
+//     destroys the renderer itself first (PySDL_RendererWindowGone);
+//   - video shutdown (SDL_QuitRender) frees every renderer, window-bound or not.
+// Texture wrappers record their renderer and are invalidated on each path.
+static PySDL_Registry _renderers;
+static PySDL_Registry _textures;
+
+int PySDL_TextureTrack(PySDL_Texture *texture, SDL_Renderer *renderer) {
+    texture->renderer = renderer;
+    return PySDL_RegistryAdd(&_textures, (PyObject *)texture);
+}
+
+void PySDL_TextureForget(PySDL_Texture *texture) {
+    PySDL_RegistryRemove(&_textures, (PyObject *)texture);
+}
+
+// Invalidate the texture wrappers of `renderer` (of every renderer for NULL).
+static void _drop_textures(SDL_Renderer *renderer) {
+    for(Py_ssize_t idx = _textures.len - 1; idx >= 0; --idx) {
+        PySDL_Texture *texture = (PySDL_Texture *)_textures.items[idx];
+        if(NULL == renderer || texture->renderer == renderer) {
+            PySDL_RegistryRemove(&_textures, (PyObject *)texture);  // swaps in an item already visited
+            PySDL_TextureInvalidate(texture);
+        }
+    }
+}
+
+static PySDL_Renderer * _owner(SDL_Renderer *renderer) {
+    for(Py_ssize_t idx = 0; renderer && idx < _renderers.len; ++idx) {
+        PySDL_Renderer *wrapper = (PySDL_Renderer *)_renderers.items[idx];
+        if(wrapper->renderer == renderer) {
+            return wrapper;
+        }
+    }
+    return NULL;
+}
+
+// Destroy an owned renderer whose wrapper has already let go of it.
+static void _destroy(SDL_Renderer *renderer) {
+    _drop_textures(renderer);  // SDL frees them
+    SDL_Window *window = SDL_GetRenderWindow(renderer);
+    const char *name = SDL_GetRendererName(renderer);
+    if(window && name && 0 == SDL_strcmp(name, SDL_SOFTWARE_RENDERER)) {
+        PySDL_WindowSurfaceDrop(window);  // it draws to, and frees, the window surface
+    }
+    SDL_DestroyRenderer(renderer);
+}
+
+void PySDL_RendererWindowGone(SDL_Window *window) {
+    PySDL_Renderer *wrapper = _owner(SDL_GetRenderer(window));
+    if(NULL != wrapper) {  // not SDL's own window-surface renderer
+        SDL_Renderer *renderer = wrapper->renderer;
+        wrapper->renderer = NULL;
+        _destroy(renderer);
+    }
+}
+
+PyObject * PySDL_RendererFor(SDL_Renderer *renderer) {
+    PySDL_Renderer *wrapper = _owner(renderer);
+    if(NULL == wrapper) {
+        Py_RETURN_NONE;
+    }
+    return Py_NewRef((PyObject *)wrapper);
+}
+
+int PySDL_RendererOwned(SDL_Renderer *renderer) {
+    return NULL != _owner(renderer);
+}
+
+void PySDL_InvalidateRenderers(void) {
+    _drop_textures(NULL);
+    for(Py_ssize_t idx = 0; idx < _renderers.len; ++idx) {
+        ((PySDL_Renderer *)_renderers.items[idx])->renderer = NULL;
+    }
+}
+
+// A Texture argument's SDL texture, raising if its renderer has been
+// destroyed: a NULL texture would otherwise mean "none" to SDL_SetRenderTarget
+// / SDL_RenderGeometry.
+static int _texture_arg(PyObject *obj, SDL_Texture **out) {
+    SDL_Texture *texture = ((PySDL_Texture *)obj)->texture;
+    if(NULL == texture) {
+        PyErr_SetString(pysdl_Error, "Texture is no longer valid: its Renderer was destroyed");
+        return 0;
+    }
+    *out = texture;
+    return 1;
+}
+
+// SDL_FlushRenderer (and SDL_SetRenderTarget before SDL 3.4) dereference the
+// renderer unchecked: raise for a Renderer whose renderer is gone.
+static int _valid(PySDL_Renderer *self) {
+    if(NULL == self->renderer) {
+        PyErr_SetString(pysdl_Error, "Invalid renderer");
+        return 0;
+    }
+    return 1;
+}
+
 static int PySDL_Renderer_Type_init(PySDL_Renderer *self, PyObject *args, PyObject *kwds) {
     PyObject *window = NULL;
     const char *name = NULL;
@@ -120,6 +255,10 @@ static int PySDL_Renderer_Type_init(PySDL_Renderer *self, PyObject *args, PyObje
 
     self->renderer = NULL;
     self->target = NULL;
+    self->surface = NULL;
+    if(0 > PySDL_RegistryAdd(&_renderers, (PyObject *)self)) {
+        return -1;
+    }
 
     // No window: internal allocation (Window.CreateRenderer, CreateSoftwareRenderer)
     // fills in ->renderer afterwards.
@@ -139,11 +278,14 @@ static int PySDL_Renderer_Type_init(PySDL_Renderer *self, PyObject *args, PyObje
 }
 
 static void PySDL_Renderer_Type_dealloc(PySDL_Renderer *self) {
-    Py_XDECREF(self->target);
+    PySDL_RegistryRemove(&_renderers, (PyObject *)self);
+    Py_CLEAR(self->target);
     if(NULL != self->renderer) {
-        SDL_DestroyRenderer(self->renderer);
+        SDL_Renderer *renderer = self->renderer;
         self->renderer = NULL;
+        _destroy(renderer);
     }
+    Py_CLEAR(self->surface);  // after: destroying a software renderer flushes into it
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
@@ -226,6 +368,10 @@ static PyObject * PySDL_Renderer_CreateTextureFromSurface(PySDL_Renderer *self, 
         Py_DECREF(pysdl_Texture);
         return _raise();
     }
+    if(0 > PySDL_TextureTrack(pysdl_Texture, self->renderer)) {
+        Py_DECREF(pysdl_Texture);  // destroys the texture
+        return NULL;
+    }
 
     return (PyObject *)pysdl_Texture;
 }
@@ -250,6 +396,10 @@ static PyObject * PySDL_Renderer_LoadTexture(PySDL_Renderer *self, PyObject *arg
         return NULL;
     }
     wrapper->texture = texture;
+    if(0 > PySDL_TextureTrack(wrapper, self->renderer)) {
+        Py_DECREF(wrapper);  // destroys the texture
+        return NULL;
+    }
     return (PyObject *)wrapper;
 }
 
@@ -270,6 +420,9 @@ static PyObject * PySDL_Renderer_Present(PySDL_Renderer *self, PyObject *ign) {
 }
 
 static PyObject * PySDL_Renderer_Flush(PySDL_Renderer *self, PyObject *ign) {
+    if(!_valid(self)) {
+        return NULL;
+    }
     if(!SDL_FlushRenderer(self->renderer)) {
         return _raise();
     }
@@ -317,7 +470,11 @@ static PyObject * PySDL_Renderer_Copy(PySDL_Renderer *self, PyObject *args, PyOb
         dst = &dst_rect;
     }
 
-    if(!SDL_RenderTexture(self->renderer, texture->texture, src, dst)) {
+    SDL_Texture *tex;
+    if(!_texture_arg((PyObject *)texture, &tex)) {
+        return NULL;
+    }
+    if(!SDL_RenderTexture(self->renderer, tex, src, dst)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -360,7 +517,11 @@ static PyObject * PySDL_Renderer_CopyEx(PySDL_Renderer *self, PyObject *args, Py
         center = &center_point;
     }
 
-    if(!SDL_RenderTextureRotated(self->renderer, texture->texture, src, dst, angle, center, (SDL_FlipMode)flip)) {
+    SDL_Texture *tex;
+    if(!_texture_arg((PyObject *)texture, &tex)) {
+        return NULL;
+    }
+    if(!SDL_RenderTextureRotated(self->renderer, tex, src, dst, angle, center, (SDL_FlipMode)flip)) {
         return _raise();
     }
     Py_RETURN_NONE;
@@ -494,7 +655,9 @@ static PyObject * PySDL_Renderer_RenderGeometry(PySDL_Renderer *self, PyObject *
             PyErr_SetString(PyExc_TypeError, "texture must be an SDL3.Texture or None");
             return NULL;
         }
-        texture = ((PySDL_Texture *)texture_py)->texture;
+        if(!_texture_arg(texture_py, &texture)) {
+            return NULL;
+        }
     }
 
     PyObject *vfast = PySequence_Fast(vertices_py, "vertices must be a list");
@@ -706,12 +869,17 @@ static PyObject * PySDL_Renderer_GetLogicalSize(PySDL_Renderer *self, PyObject *
 
 static PyObject * PySDL_Renderer_SetRenderTarget(PySDL_Renderer *self, PyObject *arg) {
     SDL_Texture *texture = NULL;
+    if(!_valid(self)) {
+        return NULL;
+    }
     if(arg != Py_None) {
         if(!PyObject_TypeCheck(arg, &PySDL_Texture_Type)) {
             PyErr_SetString(PyExc_TypeError, "expected an SDL3.Texture or None");
             return NULL;
         }
-        texture = ((PySDL_Texture *)arg)->texture;
+        if(!_texture_arg(arg, &texture)) {
+            return NULL;
+        }
     }
 
     if(!SDL_SetRenderTarget(self->renderer, texture)) {
@@ -812,4 +980,239 @@ static PyObject * PySDL_Renderer_GetRendererOutputSize(PySDL_Renderer *self, PyO
         return _raise();
     }
     return Py_BuildValue("(ii)", w, h);
+}
+
+//=========================================================
+// vsync, logical presentation, coordinate mapping
+//=========================================================
+
+static PyObject * PySDL_Renderer_GetVSync(PySDL_Renderer *self, PyObject *ign) {
+    int vsync = 0;
+    if(!SDL_GetRenderVSync(self->renderer, &vsync)) {
+        return _raise();
+    }
+    return PyLong_FromLong(vsync);
+}
+
+// -> (x, y, w, h) floats: where the logical-size output lands in the output,
+// in pixels, e.g. to place letterbox bars (zeros with no logical size set:
+// SDL fills it in as it lays the presentation out).
+static PyObject * PySDL_Renderer_GetLogicalPresentationRect(PySDL_Renderer *self, PyObject *ign) {
+    SDL_FRect rect;
+    if(!SDL_GetRenderLogicalPresentationRect(self->renderer, &rect)) {
+        return _raise();
+    }
+    return Py_BuildValue("(ffff)", rect.x, rect.y, rect.w, rect.h);
+}
+
+// RenderWindowToLogical((x, y)) / RenderCoordinatesFromWindow: window
+// coordinates (a mouse event's, say) -> render coordinates under the current
+// logical presentation, scale and viewport. SDL3 maps floats both ways.
+static PyObject * PySDL_Renderer_WindowToLogical(PySDL_Renderer *self, PyObject *arg) {
+    SDL_FPoint point;
+    if(!PyToFPoint(arg, &point)) {
+        return NULL;
+    }
+    float x = 0, y = 0;
+    if(!SDL_RenderCoordinatesFromWindow(self->renderer, point.x, point.y, &x, &y)) {
+        return _raise();
+    }
+    return Py_BuildValue("(ff)", x, y);
+}
+
+// RenderLogicalToWindow((x, y)) / RenderCoordinatesToWindow: the inverse.
+static PyObject * PySDL_Renderer_LogicalToWindow(PySDL_Renderer *self, PyObject *arg) {
+    SDL_FPoint point;
+    if(!PyToFPoint(arg, &point)) {
+        return NULL;
+    }
+    float x = 0, y = 0;
+    if(!SDL_RenderCoordinatesToWindow(self->renderer, point.x, point.y, &x, &y)) {
+        return _raise();
+    }
+    return Py_BuildValue("(ff)", x, y);
+}
+
+//=========================================================
+// window / Metal accessors
+//=========================================================
+
+// The window this renderer draws to (a borrowed Window), or None for a
+// software renderer on a Surface.
+static PyObject * PySDL_Renderer_GetWindow(PySDL_Renderer *self, PyObject *ign) {
+    if(!_valid(self)) {
+        return NULL;
+    }
+    return PySDL_WrapWindow(SDL_GetRenderWindow(self->renderer));
+}
+
+// Metal renderer only: the CAMetalLayer / id<MTLRenderCommandEncoder> as a
+// pointer int, or None on any other renderer.
+static PyObject * PySDL_Renderer_GetMetalLayer(PySDL_Renderer *self, PyObject *ign) {
+    if(!_valid(self)) {
+        return NULL;
+    }
+    void *layer = SDL_GetRenderMetalLayer(self->renderer);
+    if(NULL == layer) {
+        Py_RETURN_NONE;
+    }
+    return PyLong_FromVoidPtr(layer);
+}
+
+static PyObject * PySDL_Renderer_GetMetalCommandEncoder(PySDL_Renderer *self, PyObject *ign) {
+    if(!_valid(self)) {
+        return NULL;
+    }
+    void *encoder = SDL_GetRenderMetalCommandEncoder(self->renderer);
+    if(NULL == encoder) {
+        Py_RETURN_NONE;
+    }
+    return PyLong_FromVoidPtr(encoder);
+}
+
+//=========================================================
+// RenderGeometryRaw
+//=========================================================
+
+// A buffer argument with a stride SDL can step by: non-negative, and both it
+// and the data aligned for SDL's typed reads (floats, 16/32-bit indices).
+// 1 with *view held, or 0 with an exception set and view->obj NULL.
+static int _raw_buffer(PyObject *obj, Py_buffer *view, const char *name, int stride, int align) {
+    if(0 > PyObject_GetBuffer(obj, view, PyBUF_SIMPLE)) {
+        view->obj = NULL;
+        return 0;
+    }
+    if(stride < 0 || stride % align) {
+        PyErr_Format(PyExc_ValueError, "%s stride must be a non-negative multiple of %d", name, align);
+    } else if((uintptr_t)view->buf % align) {
+        PyErr_Format(PyExc_ValueError, "%s buffer must be %d-byte aligned", name, align);
+    } else {
+        return 1;
+    }
+    PyBuffer_Release(view);
+    return 0;
+}
+
+// Does `view` hold `count` elements of `elem` bytes, `stride` bytes apart?
+static int _raw_fits(Py_buffer *view, const char *name, Py_ssize_t count, int stride, Py_ssize_t elem) {
+    if(count <= 0) {
+        return 1;
+    }
+    if(stride > 0 && count - 1 > (PY_SSIZE_T_MAX - elem) / stride) {
+        PyErr_Format(PyExc_OverflowError, "%s: too many vertices", name);
+        return 0;
+    }
+    Py_ssize_t need = (count - 1) * stride + elem;
+    if(view->len < need) {
+        PyErr_Format(PyExc_ValueError, "%s holds %zd bytes, %zd vertices need %zd", name, view->len, count, need);
+        return 0;
+    }
+    return 1;
+}
+
+// RenderGeometryRaw(texture, xy, color, uv=None, indices=None, *,
+//     num_vertices=None, xy_stride=8, color_stride=16, uv_stride=8, index_size=4)
+// Triangles straight from buffers (bytes, array, numpy): xy and uv are float32
+// pairs, color is float32 RGBA (SDL_FColor, 0..1; stride 0 gives every vertex
+// the same colour), indices are 1/2/4-byte unsigned ints. num_vertices
+// defaults to len(xy) // xy_stride. Sizes, strides and alignment are checked
+// before SDL reads anything (SDL range-checks the index values itself).
+static PyObject * PySDL_Renderer_RenderGeometryRaw(PySDL_Renderer *self, PyObject *args, PyObject *kwds) {
+    PyObject *texture_py, *xy_py, *color_py, *uv_py = Py_None, *indices_py = Py_None, *num_py = Py_None;
+    int xy_stride = 8, color_stride = (int)sizeof(SDL_FColor), uv_stride = 8, index_size = 4;
+
+    static char *kwlist[] = {"texture", "xy", "color", "uv", "indices", "num_vertices",
+                             "xy_stride", "color_stride", "uv_stride", "index_size", NULL};
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "OOO|OO$Oiiii", kwlist,
+        &texture_py, &xy_py, &color_py, &uv_py, &indices_py, &num_py,
+        &xy_stride, &color_stride, &uv_stride, &index_size)) {
+        return NULL;
+    }
+
+    SDL_Texture *texture = NULL;
+    if(texture_py != Py_None) {
+        if(!PyObject_TypeCheck(texture_py, &PySDL_Texture_Type)) {
+            PyErr_SetString(PyExc_TypeError, "texture must be an SDL3.Texture or None");
+            return NULL;
+        }
+        if(!_texture_arg(texture_py, &texture)) {
+            return NULL;
+        }
+    }
+    if(1 != index_size && 2 != index_size && 4 != index_size) {
+        PyErr_SetString(PyExc_ValueError, "index_size must be 1, 2 or 4");
+        return NULL;
+    }
+
+    PyObject *result = NULL;
+    Py_buffer xy, color, uv, indices;
+    xy.obj = color.obj = uv.obj = indices.obj = NULL;
+    Py_ssize_t num_vertices, num_indices = 0;
+
+    if(!_raw_buffer(xy_py, &xy, "xy", xy_stride, 4)) {
+        goto done;
+    }
+    if(num_py == Py_None) {
+        if(0 == xy_stride) {
+            PyErr_SetString(PyExc_ValueError, "num_vertices is required with xy_stride=0");
+            goto done;
+        }
+        num_vertices = xy.len / xy_stride;
+    } else {
+        num_vertices = PyLong_AsSsize_t(num_py);
+        if(-1 == num_vertices && PyErr_Occurred()) {
+            goto done;
+        }
+        if(num_vertices < 0) {
+            PyErr_SetString(PyExc_ValueError, "num_vertices must be >= 0");
+            goto done;
+        }
+    }
+    if(num_vertices > INT_MAX) {
+        PyErr_SetString(PyExc_OverflowError, "too many vertices");
+        goto done;
+    }
+    if(!_raw_fits(&xy, "xy", num_vertices, xy_stride, 2 * sizeof(float))
+        || !_raw_buffer(color_py, &color, "color", color_stride, 4)
+        || !_raw_fits(&color, "color", num_vertices, color_stride, sizeof(SDL_FColor))) {
+        goto done;
+    }
+    if(uv_py != Py_None
+        && (!_raw_buffer(uv_py, &uv, "uv", uv_stride, 4)
+            || !_raw_fits(&uv, "uv", num_vertices, uv_stride, 2 * sizeof(float)))) {
+        goto done;
+    }
+    if(indices_py != Py_None) {
+        if(!_raw_buffer(indices_py, &indices, "indices", index_size, index_size)) {
+            goto done;
+        }
+        if(indices.len % index_size) {
+            PyErr_Format(PyExc_ValueError, "indices holds %zd bytes, not a multiple of index_size %d",
+                indices.len, index_size);
+            goto done;
+        }
+        num_indices = indices.len / index_size;
+        if(num_indices > INT_MAX) {
+            PyErr_SetString(PyExc_OverflowError, "too many indices");
+            goto done;
+        }
+    }
+
+    if(!SDL_RenderGeometryRaw(self->renderer, texture,
+            (const float *)xy.buf, xy_stride,
+            (const SDL_FColor *)color.buf, color_stride,
+            uv.obj ? (const float *)uv.buf : NULL, uv_stride,
+            (int)num_vertices,
+            indices.obj ? indices.buf : NULL, (int)num_indices, index_size)) {
+        result = _raise();
+        goto done;
+    }
+    result = Py_NewRef(Py_None);
+
+done:
+    if(indices.obj) PyBuffer_Release(&indices);
+    if(uv.obj)      PyBuffer_Release(&uv);
+    if(color.obj)   PyBuffer_Release(&color);
+    if(xy.obj)      PyBuffer_Release(&xy);
+    return result;
 }

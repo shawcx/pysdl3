@@ -1,8 +1,9 @@
 #include "pysdl.h"
 
 // Module-level video functions: extra display queries, message boxes, hints,
-// misc (OpenURL / locales), the GL and Vulkan loader entry points, and the
-// borrowed-window lookups. Registered via PyModule_AddFunctions.
+// misc (OpenURL / locales), the GL and Vulkan loader entry points, the
+// borrowed-window lookups and CreateWindowAndRenderer. Registered via
+// PyModule_AddFunctions.
 
 static PyObject * _raise(void) {
     PyErr_SetString(pysdl_Error, SDL_GetError());
@@ -111,6 +112,36 @@ static PyObject * PySDL_GetWindowFromID(PyObject *self, PyObject *arg) {
 
 static PyObject * PySDL_GetGrabbedWindow(PyObject *self, PyObject *ign) {
     return PySDL_WrapWindow(SDL_GetGrabbedWindow());
+}
+
+// CreateWindowAndRenderer(title, size, flags=0) -> (Window, Renderer), both
+// owned. The wrappers are made first so a failure leaves nothing to undo.
+static PyObject * PySDL_CreateWindowAndRenderer(PyObject *self, PyObject *args, PyObject *kwds) {
+    const char *title;
+    int w, h;
+    unsigned long long flags = 0;
+    static char *kwlist[] = {"title", "size", "flags", NULL};
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "s(ii)|K", kwlist, &title, &w, &h, &flags)) {
+        return NULL;
+    }
+
+    PySDL_Window *window = (PySDL_Window *)PySDL_New(&PySDL_Window_Type);
+    if(NULL == window) {
+        return NULL;
+    }
+    PySDL_Renderer *renderer = (PySDL_Renderer *)PySDL_New(&PySDL_Renderer_Type);
+    if(NULL == renderer) {
+        Py_DECREF(window);
+        return NULL;
+    }
+    // On failure SDL destroys what it made and leaves both pointers NULL.
+    if(!SDL_CreateWindowAndRenderer(title, w, h, (SDL_WindowFlags)flags, &window->window, &renderer->renderer)) {
+        PyErr_SetString(pysdl_Error, SDL_GetError());
+        Py_DECREF(renderer);
+        Py_DECREF(window);
+        return NULL;
+    }
+    return Py_BuildValue("(NN)", (PyObject *)window, (PyObject *)renderer);
 }
 
 //=========================================================
@@ -426,6 +457,7 @@ PyMethodDef pysdl_video_methods[] = {
 
     { "GetWindowFromID",          PySDL_GetWindowFromID,          METH_O       },
     { "GetGrabbedWindow",         PySDL_GetGrabbedWindow,         METH_NOARGS  },
+    { "CreateWindowAndRenderer",  (PyCFunction)PySDL_CreateWindowAndRenderer, METH_VARARGS | METH_KEYWORDS },
 
     { "ShowSimpleMessageBox",     (PyCFunction)PySDL_ShowSimpleMessageBox, METH_VARARGS | METH_KEYWORDS },
     { "ShowMessageBox",           PySDL_ShowMessageBox,           METH_O       },

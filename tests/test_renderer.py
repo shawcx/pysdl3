@@ -114,3 +114,109 @@ def test_compose_custom_blend_mode(sdl):
         sdl.BLENDFACTOR_ONE, sdl.BLENDFACTOR_ONE, sdl.BLENDOPERATION_ADD)
     assert isinstance(mode, int)
     assert mode != sdl.BLENDMODE_INVALID
+
+
+# --- phase 12: window link, vsync, coordinate mapping, raw geometry --------
+
+import array  # noqa: E402
+import struct  # noqa: E402
+
+TRIANGLE = struct.pack('6f', 0, 0, 20, 0, 0, 20)
+RED = struct.pack('4f', 1, 0, 0, 1)  # SDL_FColor
+
+
+def test_create_window_and_renderer(sdl):
+    window, renderer = sdl.CreateWindowAndRenderer('pair', (40, 30))
+    assert type(window).__name__ == 'Window' and type(renderer).__name__ == 'Renderer'
+    assert renderer.GetRendererOutputSize() == (40, 30)
+    assert window.GetRenderer() is renderer
+    assert renderer.RenderGetWindow().GetWindowID() == window.GetWindowID()
+    with pytest.raises(TypeError):
+        sdl.CreateWindowAndRenderer((40, 30))  # SDL3 takes a title first
+
+
+def test_render_get_window(sdl, window, renderer):
+    assert renderer.RenderGetWindow().GetWindowID() == window.GetWindowID()
+    assert renderer.GetRenderWindow().GetWindowID() == window.GetWindowID()
+    software = sdl.CreateSoftwareRenderer(sdl.CreateRGBSurface((4, 4)))
+    assert software.RenderGetWindow() is None
+
+
+def test_vsync_and_metal(sdl, renderer):
+    try:
+        renderer.RenderSetVSync(True)
+        assert renderer.GetVSync() == 1
+        renderer.SetVSync(sdl.RENDERER_VSYNC_DISABLED)
+    except sdl.error:
+        pass  # a renderer may not support toggling
+    assert renderer.GetVSync() in (0, 1, sdl.RENDERER_VSYNC_ADAPTIVE)
+    if 'metal' not in renderer.GetRendererInfo()[0]:
+        assert renderer.RenderGetMetalLayer() is None
+        assert renderer.GetRenderMetalCommandEncoder() is None
+
+
+def test_window_logical_mapping(sdl, renderer):
+    w, h = renderer.GetRendererOutputSize()
+    renderer.SetRenderLogicalPresentation(w // 2, h // 2, sdl.LOGICAL_PRESENTATION_LETTERBOX)
+    try:
+        assert renderer.GetRenderLogicalPresentation() == (w // 2, h // 2, sdl.LOGICAL_PRESENTATION_LETTERBOX)
+        assert renderer.GetRenderLogicalPresentationRect() == (0.0, 0.0, w, h)
+        assert renderer.RenderWindowToLogical((w // 2, h // 2)) == (w / 4, h / 4)
+        assert renderer.RenderCoordinatesFromWindow((w / 2, h / 2)) == (w / 4, h / 4)
+        assert renderer.RenderLogicalToWindow((w / 4, h / 4)) == (w / 2, h / 2)
+        assert renderer.RenderCoordinatesToWindow((1.5, 0)) == (3.0, 0.0)
+    finally:
+        renderer.RenderSetLogicalSize(0, 0, sdl.LOGICAL_PRESENTATION_DISABLED)
+    with pytest.raises(ValueError):
+        renderer.RenderWindowToLogical((1, 2, 3))
+
+
+def test_render_geometry_raw(sdl, renderer):
+    renderer.SetRenderDrawColor(0, 0, 0, 255)
+    renderer.Clear()
+    renderer.RenderGeometryRaw(None, TRIANGLE, RED, color_stride=0)            # one colour
+    assert renderer.RenderReadPixels((2, 2, 1, 1), sdl.PIXELFORMAT_RGBA32) == bytes((255, 0, 0, 255))
+    renderer.RenderGeometryRaw(None, TRIANGLE, RED * 3)                        # per vertex
+    renderer.RenderGeometryRaw(None, TRIANGLE, RED * 3, indices=bytes([0, 1, 2]), index_size=1)
+    renderer.RenderGeometryRaw(None, TRIANGLE, RED * 3,
+                               indices=struct.pack('3H', 2, 1, 0), index_size=2)
+    renderer.RenderGeometryRaw(None, array.array('f', [0, 0, 20, 0, 0, 20]),
+                               array.array('f', [0, 1, 0, 1] * 3), indices=array.array('I', [0, 1, 2]))
+    renderer.RenderGeometryRaw(None, bytearray(TRIANGLE), memoryview(RED * 3), num_vertices=3)
+    # interleaved (x, y, r, g, b, a) records: num_vertices comes from xy
+    packed = array.array('f')
+    for x, y in ((0, 0), (20, 0), (0, 20)):
+        packed.extend((x, y, 0, 0, 1, 1))
+    renderer.RenderGeometryRaw(None, packed, memoryview(packed).cast('B')[8:], xy_stride=24, color_stride=24)
+    renderer.Present()
+
+
+def test_render_geometry_raw_with_texture(sdl, renderer, texture):
+    uv = struct.pack('6f', 0, 0, 1, 0, 0, 1)
+    renderer.RenderGeometryRaw(texture, TRIANGLE, RED * 3, uv)
+    with pytest.raises(sdl.error):
+        renderer.RenderGeometryRaw(texture, TRIANGLE, RED * 3)  # a texture needs uv
+
+
+def test_render_geometry_raw_validation(sdl, renderer):
+    bad = [
+        ((None, TRIANGLE, RED), {}),                                   # 3 vertices, 1 colour
+        ((None, TRIANGLE, RED * 3), {'xy_stride': 6}),                 # not float-aligned
+        ((None, TRIANGLE, RED * 3), {'color_stride': -16}),
+        ((None, TRIANGLE, RED * 3), {'indices': b'\0', 'index_size': 3}),
+        ((None, TRIANGLE, RED * 3), {'indices': b'\0\0\0', 'index_size': 2}),  # odd length
+        ((None, TRIANGLE, RED * 3, TRIANGLE[:20]), {}),                # short uv
+        ((None, TRIANGLE, RED * 3), {'num_vertices': 4}),              # more than xy holds
+        ((None, TRIANGLE, RED * 3), {'num_vertices': -1}),
+        ((None, TRIANGLE, RED * 3), {'xy_stride': 0}),                 # count unknown
+        ((None, memoryview(b'\0' + TRIANGLE)[1:], RED * 3), {}),       # misaligned floats
+    ]
+    for args, kwargs in bad:
+        with pytest.raises(ValueError):
+            renderer.RenderGeometryRaw(*args, **kwargs)
+    with pytest.raises(sdl.error):  # SDL range-checks index values
+        renderer.RenderGeometryRaw(None, TRIANGLE, RED * 3, indices=bytes([0, 1, 9]), index_size=1)
+    with pytest.raises(TypeError):
+        renderer.RenderGeometryRaw('nope', TRIANGLE, RED * 3)
+    with pytest.raises(TypeError):
+        renderer.RenderGeometryRaw(None, [0.0] * 6, RED * 3)  # a buffer, not a list

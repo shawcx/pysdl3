@@ -61,6 +61,12 @@ static PyObject * PySDL_Window_GetSizeInPixels     (PySDL_Window*, PyObject*);
 static PyObject * PySDL_Window_Vulkan_CreateSurface   (PySDL_Window*, PyObject*);
 static PyObject * PySDL_Window_Metal_CreateView       (PySDL_Window*, PyObject*);
 
+static PyObject * PySDL_Window_GetRenderer           (PySDL_Window*, PyObject*);
+static PyObject * PySDL_Window_GetWindowICCProfile   (PySDL_Window*, PyObject*);
+static PyObject * PySDL_Window_HasWindowSurface      (PySDL_Window*, PyObject*);
+static PyObject * PySDL_Window_DestroyWindowSurface  (PySDL_Window*, PyObject*);
+static PyObject * PySDL_Window_SetWindowShape        (PySDL_Window*, PyObject*);
+
 static PyMethodDef PySDL_Window_methods[] = {
     { "GetWindowID",         (PyCFunction)PySDL_Window_GetWindowID,         METH_NOARGS  },
     { "GetWindowTitle",      (PyCFunction)PySDL_Window_GetWindowTitle,      METH_NOARGS  },
@@ -119,6 +125,13 @@ static PyMethodDef PySDL_Window_methods[] = {
     { "SetWindowMouseRect",    (PyCFunction)PySDL_Window_SetWindowMouseRect,    METH_O       },
     { "GetWindowMouseRect",    (PyCFunction)PySDL_Window_GetWindowMouseRect,    METH_NOARGS  },
 
+    { "GetRenderer",           (PyCFunction)PySDL_Window_GetRenderer,           METH_NOARGS  },
+    { "GetWindowICCProfile",   (PyCFunction)PySDL_Window_GetWindowICCProfile,   METH_NOARGS  },
+    { "HasWindowSurface",      (PyCFunction)PySDL_Window_HasWindowSurface,      METH_NOARGS  },
+    { "WindowHasSurface",      (PyCFunction)PySDL_Window_HasWindowSurface,      METH_NOARGS  },
+    { "DestroyWindowSurface",  (PyCFunction)PySDL_Window_DestroyWindowSurface,  METH_NOARGS  },
+    { "SetWindowShape",        (PyCFunction)PySDL_Window_SetWindowShape,        METH_O       },
+
     { "Vulkan_GetDrawableSize", (PyCFunction)PySDL_Window_GetSizeInPixels,      METH_NOARGS },
     { "Vulkan_CreateSurface",   (PyCFunction)PySDL_Window_Vulkan_CreateSurface, METH_O      },
     { "Metal_CreateView",       (PyCFunction)PySDL_Window_Metal_CreateView,     METH_NOARGS },
@@ -173,12 +186,37 @@ static void _drop_surface(SDL_WindowID id) {
     }
 }
 
-// Null every other wrapper of `window` (borrowed ones from GetWindowFromID,
-// GetKeyboardFocus, ...) before the owner destroys it.
-static void _forget_window(SDL_Window *window, PySDL_Window *owner) {
+// Is `window` `root` or one of its descendants? SDL_DestroyWindow takes the
+// child windows (SetWindowModalFor parents them) down with the parent.
+static int _within(SDL_Window *window, SDL_Window *root) {
+    for(; NULL != window; window = SDL_GetWindowParent(window)) {
+        if(window == root) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// The owner is about to SDL_DestroyWindow(root), which also destroys its
+// child windows and, with each window, its surface and its renderer (and so
+// the renderer's textures). Destroy the renderers first (SDL would leave a
+// husk some SDL calls don't check), empty the surfaces and null every other
+// wrapper of those windows (borrowed ones from GetWindowFromID,
+// GetKeyboardFocus, ..., and a child's own).
+static void _destroying(SDL_Window *root, PySDL_Window *owner) {
     for(Py_ssize_t idx = 0; idx < _windows.len; ++idx) {
         PySDL_Window *other = (PySDL_Window *)_windows.items[idx];
-        if(other != owner && other->window == window) {
+        SDL_Window *window = other->window;
+        if(NULL != window && window != root && _within(window, root)) {
+            PySDL_RendererWindowGone(window);
+            _drop_surface(SDL_GetWindowID(window));
+        }
+    }
+    PySDL_RendererWindowGone(root);
+    _drop_surface(SDL_GetWindowID(root));
+    for(Py_ssize_t idx = 0; idx < _windows.len; ++idx) {
+        PySDL_Window *other = (PySDL_Window *)_windows.items[idx];
+        if(other != owner && NULL != other->window && _within(other->window, root)) {
             other->window = NULL;
         }
     }
@@ -189,10 +227,16 @@ void PySDL_WindowSurfaceForget(PySDL_Surface *surface) {
     surface->window_id = 0;
 }
 
+void PySDL_WindowSurfaceDrop(SDL_Window *window) {
+    _drop_surface(SDL_GetWindowID(window));
+}
+
 // Video shut down (SDL_Quit, QuitSubSystem(INIT_VIDEO)): SDL destroyed every
-// window and window surface. Null the Windows (their methods then raise
-// "Invalid window" and dealloc does nothing) and empty the Surfaces.
+// window, window surface, renderer and texture. Null the Windows (their
+// methods then raise "Invalid window" and dealloc does nothing), the Renderers
+// and Textures, and empty the Surfaces.
 void PySDL_InvalidateWindows(void) {
+    PySDL_InvalidateRenderers();
     for(Py_ssize_t idx = 0; idx < _windows.len; ++idx) {
         PySDL_Window *window = (PySDL_Window *)_windows.items[idx];
         window->window = NULL;
@@ -255,8 +299,7 @@ static void PySDL_Window_Type_dealloc(PySDL_Window *self) {
     }
     if(NULL != self->window) {
         if(self->shouldFree) {
-            _drop_surface(SDL_GetWindowID(self->window));  // SDL frees it with the window
-            _forget_window(self->window, self);            // borrowed wrappers of it
+            _destroying(self->window, self);
             SDL_DestroyWindow(self->window);
         }
         self->window = NULL;
@@ -737,4 +780,71 @@ static PyObject * PySDL_Window_Metal_CreateView(PySDL_Window *self, PyObject *ig
         return _wraise();
     }
     return PyLong_FromVoidPtr(view);
+}
+
+//=========================================================
+// renderer, ICC profile, window surface, shape
+//=========================================================
+
+// The Renderer object that owns this window's renderer (the same object
+// CreateRenderer / SDL3.Renderer / CreateWindowAndRenderer returned), or None.
+// SDL's own renderer behind an accelerated window surface is not exposed.
+static PyObject * PySDL_Window_GetRenderer(PySDL_Window *self, PyObject *ign) {
+    if(NULL == self->window) {
+        PyErr_SetString(pysdl_Error, "Invalid window");
+        return NULL;
+    }
+    return PySDL_RendererFor(SDL_GetRenderer(self->window));
+}
+
+// The ICC profile of the window's display as bytes, or None if there is none.
+static PyObject * PySDL_Window_GetWindowICCProfile(PySDL_Window *self, PyObject *ign) {
+    size_t size = 0;
+    void *data = SDL_GetWindowICCProfile(self->window, &size);
+    if(NULL == data) {
+        SDL_ClearError();
+        Py_RETURN_NONE;
+    }
+    PyObject *result = PyBytes_FromStringAndSize(data, (Py_ssize_t)size);
+    SDL_free(data);
+    return result;
+}
+
+static PyObject * PySDL_Window_HasWindowSurface(PySDL_Window *self, PyObject *ign) {
+    return PyBool_FromLong(SDL_WindowHasSurface(self->window));
+}
+
+// Free the window surface; a Surface from GetWindowSurface() is emptied (0x0)
+// first. Refused while a Renderer draws to the window (a software one renders
+// into this very surface).
+static PyObject * PySDL_Window_DestroyWindowSurface(PySDL_Window *self, PyObject *ign) {
+    if(NULL != self->window && PySDL_RendererOwned(SDL_GetRenderer(self->window))) {
+        PyErr_SetString(pysdl_Error, "the window has a Renderer: destroy it first");
+        return NULL;
+    }
+    if(NULL != self->window) {
+        _drop_surface(SDL_GetWindowID(self->window));
+    }
+    if(!SDL_DestroyWindowSurface(self->window)) {
+        return _wraise();
+    }
+    Py_RETURN_NONE;
+}
+
+// SetWindowShape(surface | None): the alpha channel of `surface` shapes a
+// window created with WINDOW_TRANSPARENT (SDL copies it); None removes it,
+// which the linked SDL only supports from 3.4.4 (earlier ones reject NULL).
+static PyObject * PySDL_Window_SetWindowShape(PySDL_Window *self, PyObject *arg) {
+    SDL_Surface *shape = NULL;
+    if(arg != Py_None && !PySDL_SurfaceArg(arg, &shape)) {
+        return NULL;
+    }
+    if(NULL == shape && SDL_GetVersion() < SDL_VERSIONNUM(3, 4, 4)) {
+        PyErr_SetString(pysdl_Error, "removing a window shape (None) needs SDL 3.4.4");
+        return NULL;
+    }
+    if(!SDL_SetWindowShape(self->window, shape)) {
+        return _wraise();
+    }
+    Py_RETURN_NONE;
 }

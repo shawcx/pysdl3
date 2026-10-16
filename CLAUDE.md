@@ -83,6 +83,9 @@ a display:
 - `python3 example/rects.py` — live rect intersection / union / enclose / line-clip
 - `python3 example/image.py [file]` — SDL_image: format probes, animations, SVG / XPM,
   encode to bytes; no window
+- `python3 example/logical.py [--frames N]` — logical-presentation canvas: mouse
+  picking, RenderGeometryRaw, LockToSurface, vsync / mode toggles; `--frames N`
+  exits after N frames (runs headless)
 - `python3 example/simple.py <image>` — load an image, show it, event loop
 - `python3 example/audio.py` — audio callback + OpenGL visualizer (also needs a `pygl` module)
 - `example/adjust.py` — fullscreen test pattern on every display
@@ -95,7 +98,8 @@ a display:
 
 - `src/pysdl.c` — module definition and `PyInit_SDL3`. Holds `Init` /
   `InitSubSystem` / `Quit`, `LoadBMP`, display / GL / CPU / audio-device
-  queries, error / clipboard / screensaver, surface & blend-mode factories.
+  queries, error / clipboard / screensaver, surface & blend-mode factories,
+  `ConvertPixels` / `PremultiplyAlpha`.
   `_add_type()` registers each constructible wrapper (and `Gamepad` also gets a
   `GameController` alias).
 - `src/pysdl_Events.c` — the event queue: `_event()` (an `SDL_Event` ->
@@ -118,7 +122,8 @@ a display:
   functions. Its own `PyMethodDef` array (`pysdl_input_methods`) is merged into
   the module in `PyInit_SDL3` with `PyModule_AddFunctions`; `pysdl_Events.c`,
   `pysdl_Video.c` (extra display queries, message boxes, hints, `OpenURL` /
-  locales, GL / Vulkan loaders, `GetWindowFromID` / `GetGrabbedWindow`),
+  locales, GL / Vulkan loaders, `GetWindowFromID` / `GetGrabbedWindow`,
+  `CreateWindowAndRenderer`),
   `pysdl_Audio.c` (drivers, `LoadWAV`, `MixAudioFormat`, device-format queries),
   `pysdl_Rect.c` (rect / point geometry), `pysdl_Image.c` (SDL_image:
   `LoadImage`, `IMG_is*`, `IMG_LoadAnimation` / `IMG_SaveAnimation`, SVG / XPM,
@@ -135,6 +140,10 @@ a display:
   stream; release the returned `Py_buffer` after SDL closes it) and
   `PySDL_SaveOpen` / `PySDL_SaveClose` (a path or `None` -> file or growable
   `SDL_IOFromDynamicMem` stream -> `None` or the written `bytes`).
+  `PySDL_PixelsSize(format, w, h, &pitch)` gives the bytes SDL reads / writes
+  for an image (pitch 0 = tight; YUV chroma planes included) to check caller
+  buffers against; `PySDL_SurfaceArg` takes a Surface argument and rejects an
+  uninitialised one where SDL would read NULL as "none".
 - `src/_constants.c` — **generated** by `tools/gen_constants.py --generate`;
   `_constants(module)` registers ~1050 SDL3 enum/#define values as module int
   constants. Do not hand-edit: change the header allowlist / blocklist /
@@ -147,15 +156,19 @@ a display:
 
 Each wrapper struct is `PyObject_HEAD` plus one raw SDL pointer/handle (plus
 tracking fields where needed: `Surface`/`Window`/`Cursor`.`shouldFree`,
-`Renderer.target`, `Audio.pycallback`, `Surface.pixels`). The SDL pointer is
+`Renderer.target`, `Renderer.surface`, `Texture.locked`, `Texture.renderer`,
+`Audio.pycallback`, `Surface.pixels`). The SDL pointer is
 filled in either by `tp_init` (public construction) or afterwards by the C code
 that allocated the wrapper with `PySDL_New(&PySDL_X_Type)`; it is released in
 `tp_dealloc` unless `shouldFree` is 0 (a *borrowed* pointer SDL still owns —
 `Window.GetWindowSurface()`, `GetKeyboardFocus()`/`GetMouseFocus()` via
-`PySDL_WrapWindow()`, `GetCursor()`/`GetDefaultCursor()`). Joysticks and
+`PySDL_WrapWindow()`, `GetCursor()`/`GetDefaultCursor()`,
+`Texture.LockToSurface()`). Joysticks and
 gamepads are never borrowed: SDL refcounts opens of the same id, so
 `Gamepad.GetJoystick()` and the `*FromID` / `*FromPlayerIndex` lookups re-open
-the device and return a new owned wrapper (`None` if nothing is open).
+the device and return a new owned wrapper (`None` if nothing is open). Nor are
+renderers: each SDL renderer has one `Renderer` wrapper, and
+`Window.GetRenderer()` returns that same object.
 
 `Window`, `Audio`, `AudioStream`, `Renderer`, `Texture`, `PixelFormat`,
 `Palette`, `Cursor`, `Joystick`, `Gamepad`, `Timer`, `Haptic`, and `Sensor` are
@@ -171,7 +184,9 @@ joystick / gamepad / haptic / sensor devices by an `SDL_*ID` (from
 `GetJoysticks()` / `GetHaptics()` / `GetSensors()`), not a device index. Every
 `tp_init` takes its primary arg as *optional* — with none given it just nulls
 the pointer, the path `PySDL_New` and the C-side factory functions use.
-`Window`/`Renderer`/`Texture` lean on SDL's NULL-pointer tolerance; the rest go
+`Window`/`Renderer`/`Texture` lean on SDL's NULL-pointer tolerance (except
+where SDL dereferences unchecked: `SDL_FlushRenderer`, and SDL 3.2's
+`SDL_SetRenderTarget`, go through `pysdl_Renderer.c`'s `_valid()`); the rest go
 through a `_fmt()`/`_pal()`/`_js()`/`_gp()`/`_h()`/`_s()` guard that raises on an
 uninitialised instance. `Surface` is still constructed only via
 module/Window/Renderer functions.
@@ -209,8 +224,30 @@ the window — `PySDL_SurfaceDetach` points the wrapper at an empty 0×0 surface
 of its own. Every `Window` wrapper is registered too: destroying a window nulls
 its borrowed wrappers, and `Quit()` / a `QuitSubSystem()` that stops video
 (`PySDL_CheckVideoGone`) nulls every `Window` and empties every window surface.
-Getters such as `Surface.w` read the SDL struct directly, so anything that lets
-SDL free a surface under a wrapper must detach it first.
+Getters such as `Surface.w` read the SDL struct directly (they raise on an
+uninitialised Surface), so anything that lets SDL free a surface under a
+wrapper must detach it first. Destroying a window also destroys its child
+windows (`SetWindowModalFor` parents them): the Window's dealloc handles the
+whole subtree.
+
+Renderers and textures are tracked the same way (`pysdl_Renderer.c`): every
+`Renderer` wrapper registers in `tp_init`, every Texture records its
+`SDL_Renderer` and registers via `PySDL_TextureTrack()` at each creation site
+(`Texture(...)`, `CreateTextureFromSurface`, `LoadTexture` — a new site must
+call it too). SDL frees a renderer's textures when the renderer goes, so each
+path invalidates them first (`PySDL_TextureInvalidate`: pointer nulled,
+`LockToSurface` Surface emptied, methods raise): the Renderer's dealloc; a
+Window's dealloc, which destroys the window's Renderer itself first
+(`PySDL_RendererWindowGone` — `SDL_DestroyWindow` would leave a husk that
+`SDL_FlushRenderer` doesn't check) and nulls that wrapper; and video shutdown,
+whose `SDL_QuitRender` frees every renderer (`PySDL_InvalidateRenderers`, from
+`PySDL_InvalidateWindows`; `QuitSubSystem` only checks if video was running, as
+a software renderer on a Surface needs none). SDL calls that read a NULL
+texture as "none" (`SetRenderTarget`, `RenderGeometry*`) take Texture args
+through `_texture_arg()`, which raises. `CreateSoftwareRenderer(surface)` keeps
+its Surface alive in `Renderer.surface` (SDL holds the pointer) and refuses
+SDL-owned ones; destroying a software renderer on a window frees the window
+surface, so `_destroy()` detaches that first.
 
 ### Threading
 
@@ -270,7 +307,13 @@ in any callback SDL can fire from inside another SDL call.
   `PyToFRect` / `PyToFPoint` (tuple or list; a 2-item rect leaves `w`/`h` as
   `-1`, a 3-item colour sets `a = 255`). Check the return — they raise and
   return 0 on bad input. Pass `None` for optional rect args; guard with
-  `if (arg && arg != Py_None)` since an omitted optional stays `NULL`.
+  `if (arg && arg != Py_None)` since an omitted optional stays `NULL`. Some SDL
+  calls trust rect sizes (`SDL_StretchSurface`, `SDL_LockTexture`, the
+  YUV / NV texture updates when the clip is empty in one direction), so a
+  `-1` from a 2-item rect must not reach them: clip or check first.
+- Check caller buffers against everything SDL will read before calling it
+  (`PySDL_PixelsSize`, the plane checks in `Texture.UpdateYUV` / `UpdateNV`,
+  the stride / alignment checks in `RenderGeometryRaw`).
 - GUIDs cross into Python as 32-char hex strings: `GUIDToPy(SDL_GUID)`, and
   `PyToGUID(obj, &guid)` (accepts that str or the raw 16 bytes; 0 + exception on
   bad input), both in `pysdl_Joystick.c`, declared in `pysdl.h`.

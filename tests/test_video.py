@@ -208,6 +208,22 @@ def test_borrowed_window_invalidated_with_owner(sdl):
         borrowed.GetWindowID()
 
 
+def test_destroying_parent_invalidates_children(sdl):
+    # SDL_DestroyWindow takes child windows (SetWindowModalFor parents them)
+    # down too, with their surfaces, renderers and textures. (The dummy driver
+    # has no parent windows: this runs on a real one, e.g. SDL_VIDEODRIVER=cocoa.)
+    parent = sdl.Window('parent', (32, 32), flags=sdl.WINDOW_HIDDEN)
+    child = sdl.Window('child', (16, 16), flags=sdl.WINDOW_HIDDEN)
+    _try(lambda: child.SetWindowModalFor(parent))
+    renderer = child.CreateRenderer()
+    texture = sdl.Texture(renderer, sdl.PIXELFORMAT_RGBA32, sdl.TEXTUREACCESS_STATIC, (2, 2))
+    borrowed = sdl.GetWindowFromID(child.GetWindowID())
+    del parent
+    for fn in (child.GetWindowID, borrowed.GetWindowID, renderer.Clear, texture.Query):
+        with pytest.raises(sdl.error):
+            fn()
+
+
 def _run_teardown_script(sdl, body):
     # Quit tears down the session the `sdl` fixture shares: use a subprocess.
     import os
@@ -264,4 +280,86 @@ def test_quit_subsystem_respects_refcount(sdl):
         del window
         gc.collect()
         SDL3.Quit()
+    ''')
+
+
+# --- phase 12: pixel size, ICC profile, window surface, shape --------------
+
+def test_window_size_in_pixels(sdl, window):
+    assert window.GetWindowSizeInPixels() == window.GetWindowSize()  # no high-DPI here
+
+
+def test_window_icc_profile(sdl, window):
+    profile = window.GetWindowICCProfile()
+    assert profile is None or isinstance(profile, bytes)
+
+
+def test_window_surface_lifecycle(sdl):
+    window = sdl.Window('surface', (16, 16))
+    assert window.HasWindowSurface() is False
+    surface = window.GetWindowSurface()
+    assert window.WindowHasSurface() is True
+    window.DestroyWindowSurface()
+    assert window.HasWindowSurface() is False
+    assert (surface.w, surface.h) == (0, 0)  # emptied first, not dangling
+    surface.FillRect(None, (1, 2, 3))
+    assert window.GetWindowSurface().w == 16
+
+
+def test_set_window_shape(sdl):
+    window = sdl.Window('shaped', (16, 16), flags=sdl.WINDOW_TRANSPARENT)
+    shape = sdl.CreateSurface((16, 16), sdl.PIXELFORMAT_RGBA32)
+    shape.FillRect((4, 4, 8, 8), (255, 255, 255, 255))
+    _try(lambda: window.SetWindowShape(shape))
+    if sdl.GetVersion() >= (3, 4, 4):
+        window.SetWindowShape(None)
+    else:
+        with pytest.raises(sdl.error, match='3.4.4'):
+            window.SetWindowShape(None)  # SDL before 3.4.4 can't remove a shape
+    with pytest.raises(TypeError):
+        window.SetWindowShape(object())
+    with pytest.raises(sdl.error):
+        window.SetWindowShape(type(shape)())  # uninitialised: not "no shape"
+
+
+def test_quit_invalidates_renderers_and_textures(sdl):
+    _run_teardown_script(sdl, '''
+        window = SDL3.Window('w', (32, 32))
+        renderer = window.CreateRenderer()
+        texture = SDL3.Texture(renderer, SDL3.PIXELFORMAT_RGBA32, SDL3.TEXTUREACCESS_STREAMING, (4, 4))
+        locked = texture.LockToSurface()
+        software = SDL3.CreateSoftwareRenderer(SDL3.CreateSurface((8, 8), SDL3.PIXELFORMAT_RGBA32))
+        soft_texture = SDL3.Texture(software, size=(2, 2))
+
+        SDL3.Quit()  # SDL_QuitRender freed every renderer and texture
+        assert raises(renderer.Clear) and raises(renderer.RenderFlush) and raises(software.Clear)
+        assert raises(texture.Query) and raises(soft_texture.Query)
+        assert (locked.w, locked.h) == (0, 0)
+
+        # New objects may reuse the addresses; the old wrappers stay dead.
+        SDL3.Init(SDL3.INIT_VIDEO)
+        fresh_window = SDL3.Window('fresh', (16, 16))
+        fresh = fresh_window.CreateRenderer()
+        fresh_texture = SDL3.Texture(fresh, size=(2, 2))
+        del window, renderer, texture, locked, software, soft_texture
+        gc.collect()
+        assert fresh_texture.Query()[2:] == (2, 2)
+        fresh.Clear()
+        SDL3.Quit()
+    ''')
+
+
+def test_quit_subsystem_without_video_keeps_software_renderer(sdl):
+    # A software renderer on a Surface needs no video; only shutting video down
+    # (which runs SDL_QuitRender) may invalidate it.
+    _run_teardown_script(sdl, '''
+        SDL3.QuitSubSystem(SDL3.INIT_VIDEO)
+        software = SDL3.CreateSoftwareRenderer(SDL3.CreateSurface((8, 8), SDL3.PIXELFORMAT_RGBA32))
+        texture = SDL3.Texture(software, size=(2, 2))
+        SDL3.InitSubSystem(SDL3.INIT_EVENTS)
+        SDL3.QuitSubSystem(SDL3.INIT_EVENTS)
+        software.Clear()
+        assert texture.Query()[2:] == (2, 2)
+        SDL3.Quit()
+        assert raises(software.Clear) and raises(texture.Query)
     ''')
